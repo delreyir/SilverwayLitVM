@@ -18,8 +18,6 @@ const LITVM_NETWORK_PARAMS = {
   blockExplorerUrls: ["https://liteforge.explorer.caldera.xyz"],
 };
 
-// MOLA7ADA: Ila knti derti deploy l-contracts b addresses jdad f Remix, 
-// beddel had l-addresses hna bach y-khedmo m3a l-faucet jdid dialk.
 export const TOKEN_REGISTRY = [
   { symbol: "zkLTC", name: "Native zkLTC", priceUsd: 85.50, icon: "Ł", isNative: true, decimals: 18 },
   { symbol: "USDC", name: "USD Coin", priceUsd: 1.00, icon: "$", isNative: false, address: "0x6fefE517cAe9924EE3eFbd9423Fd707d55ED3bcA", decimals: 6 },
@@ -41,9 +39,11 @@ const LITVM_NETWORK = { blockExplorerUrls: ["https://explorer.litvm.com"] };
 const isDexDeployed = () => true;
 
 /* =====================================================================
-   2. REAL WEB3 HOOKS
+   2. WALLET CONTEXT & HOOKS (GLOBAL STATE)
    ===================================================================== */
-export const useWalletAuth = () => {
+const WalletContext = createContext<any>(null);
+
+export const WalletProvider = ({ children }: any) => {
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [profile, setProfile] = useState<{ wallet_address: string; chain_id: string } | null>(null);
@@ -95,12 +95,19 @@ export const useWalletAuth = () => {
   useEffect(() => {
     if (typeof window !== "undefined" && (window as any).ethereum) {
       const handleAccountsChanged = (accounts: string[]) => {
-        if (accounts.length > 0) setProfile((prev) => prev ? { ...prev, wallet_address: accounts[0] } : null);
-        else disconnect();
+        if (accounts.length > 0) {
+          setIsConnected(true);
+          setProfile((prev) => prev ? { ...prev, wallet_address: accounts[0] } : { wallet_address: accounts[0], chain_id: "" });
+        } else {
+          disconnect();
+        }
       };
       const handleChainChanged = (chainId: string) => {
         setProfile((prev) => prev ? { ...prev, chain_id: chainId } : null);
       };
+
+      // Check if already connected
+      (window as any).ethereum.request({ method: "eth_accounts" }).then(handleAccountsChanged);
 
       (window as any).ethereum.on("accountsChanged", handleAccountsChanged);
       (window as any).ethereum.on("chainChanged", handleChainChanged);
@@ -114,8 +121,14 @@ export const useWalletAuth = () => {
     }
   }, []);
 
-  return { isConnected, profile, loading, connect, disconnect };
+  return (
+    <WalletContext.Provider value={{ isConnected, profile, loading, connect, disconnect }}>
+      {children}
+    </WalletContext.Provider>
+  );
 };
+
+export const useWalletAuth = () => useContext(WalletContext);
 
 export const useTokenBalance = (symbol: string, userAddress?: string | null) => {
   const [balance, setBalance] = useState<string>("0");
@@ -147,17 +160,11 @@ export const useTokenBalance = (symbol: string, userAddress?: string | null) => 
         };
 
         if (token.isNative) {
-          const balanceHex = await (window as any).ethereum.request({
-            method: 'eth_getBalance',
-            params: [userAddress, 'latest']
-          });
+          const balanceHex = await (window as any).ethereum.request({ method: 'eth_getBalance', params: [userAddress, 'latest'] });
           if (isMounted) setBalance(formatUnits(balanceHex, 18));
         } else if (token.address && token.address !== "0x...") {
           const data = '0x70a08231' + '000000000000000000000000' + userAddress.slice(2);
-          const balanceHex = await (window as any).ethereum.request({
-            method: 'eth_call',
-            params: [{ to: token.address, data: data }, 'latest']
-          });
+          const balanceHex = await (window as any).ethereum.request({ method: 'eth_call', params: [{ to: token.address, data: data }, 'latest'] });
           const decimals = token.decimals || 18;
           if (isMounted) setBalance(formatUnits(balanceHex, decimals));
         } else {
@@ -170,13 +177,15 @@ export const useTokenBalance = (symbol: string, userAddress?: string | null) => 
       }
     };
     fetchBalance();
-    return () => { isMounted = false; };
+    
+    // Refresh balance every 10 seconds
+    const interval = setInterval(fetchBalance, 10000);
+    return () => { isMounted = false; clearInterval(interval); };
   }, [symbol, userAddress]);
 
   return { balance, loading };
 };
 
-// HADA L-HOOK JDID DIAL MINT (FAUCET) BLA MAT7TAJ ETHERS.JS ==========================
 export const useMintToken = () => {
   const [minting, setMinting] = useState<string | null>(null);
 
@@ -188,7 +197,6 @@ export const useMintToken = () => {
       const amountToMint = symbol === "WBTC" ? "1" : "1000";
       toast.info(`Minting ${amountToMint} ${symbol}...`, { description: "Please confirm in your wallet." });
 
-      // Encoding function 'mint(address,uint256)' -> selector: 0x40c10f19
       const funcSelector = "0x40c10f19";
       const paddedAddress = userAddress.toLowerCase().replace("0x", "").padStart(64, "0");
       
@@ -202,21 +210,15 @@ export const useMintToken = () => {
 
       const dataPayload = funcSelector + paddedAddress + amountHex;
 
-      // Sending raw transaction through MetaMask
-      const txHash = await (window as any).ethereum.request({
+      await (window as any).ethereum.request({
         method: 'eth_sendTransaction',
-        params: [{
-          from: userAddress,
-          to: tokenAddress,
-          data: dataPayload
-        }]
+        params: [{ from: userAddress, to: tokenAddress, data: dataPayload }]
       });
       
       toast.success(`Transaction sent!`, { description: "Wait a few seconds for LitVM to confirm." });
       
-      // Simulating a wait for the block confirmation
       setTimeout(() => {
-        toast.success(`Successfully minted ${amountToMint} ${symbol}!`, { description: "Refresh page to see your new balance." });
+        toast.success(`Successfully minted ${amountToMint} ${symbol}!`, { description: "Balances updated." });
         setMinting(null);
       }, 5000);
       
@@ -229,7 +231,6 @@ export const useMintToken = () => {
 
   return { mint, minting };
 };
-// ==============================================================
 
 const useSwapQuote = (from: string, to: string, amount: string, slippage: number) => {
   const [loading, setLoading] = useState(false);
@@ -317,12 +318,12 @@ const DropdownMenuContent = ({ children, className }: any) => {
     </div>
   );
 };
-const DropdownMenuItem = ({ children, onClick, className }: any) => {
+const DropdownMenuItem = ({ children, onClick, className, disabled }: any) => {
   const { setOpen } = useContext(DropdownContext);
   return (
-    <div onClick={(e) => { setOpen(false); if(onClick) onClick(e); }} className={`relative flex cursor-pointer items-center px-3 py-2 text-[13px] hover:bg-secondary/60 transition-colors ${className}`}>
+    <button disabled={disabled} onClick={(e) => { if(!disabled) { setOpen(false); if(onClick) onClick(e); } }} className={`w-full relative flex cursor-pointer items-center px-3 py-2 text-[13px] transition-colors disabled:opacity-50 ${disabled ? 'cursor-not-allowed' : 'hover:bg-secondary/60'} ${className}`}>
       {children}
-    </div>
+    </button>
   );
 };
 const DropdownMenuSeparator = () => <div className="h-px bg-border/50 mx-2 my-1" />;
@@ -393,6 +394,7 @@ const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 const Header = () => {
   const { isConnected, profile, loading, connect, disconnect } = useWalletAuth();
+  const { mint, minting } = useMintToken();
   const [copied, setCopied] = useState(false);
 
   const copyAddress = async () => {
@@ -448,7 +450,37 @@ const Header = () => {
         </div>
 
         <div className="flex items-center gap-2.5">
-          <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-full bg-secondary/60 border border-border/60">
+          
+          {/* FAUCET MENU F LFO9 */}
+          {isConnected && profile && (
+            <DropdownMenu>
+              <DropdownMenuTrigger>
+                <button className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-card border border-border/60 hover:border-border transition-colors text-[12px] font-medium text-muted-foreground hover:text-foreground">
+                  <Droplets className="h-3.5 w-3.5" />
+                  Faucet
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-52">
+                <div className="px-3 py-2 text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground">Testnet Tokens</div>
+                {TOKEN_REGISTRY.filter(t => !t.isNative && t.address).map(t => (
+                  <DropdownMenuItem 
+                    key={t.symbol} 
+                    disabled={minting === t.symbol}
+                    onClick={() => mint(t.symbol, t.address!, t.decimals || 18, profile.wallet_address)} 
+                    className="justify-between"
+                  >
+                    <div className="flex items-center gap-2">
+                      <TokenIcon symbol={t.symbol} size={18} />
+                      <span className="font-medium">{t.symbol}</span>
+                    </div>
+                    {minting === t.symbol ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : <span className="text-[10px] text-muted-foreground uppercase">+ Mint</span>}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          <div className="hidden sm:flex items-center gap-2 px-2.5 py-1.5 rounded-full bg-secondary/60 border border-border/60">
             <span className="relative flex h-1.5 w-1.5">
               <span className="absolute inline-flex h-full w-full rounded-full bg-success opacity-60 animate-ping" />
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-success" />
@@ -468,11 +500,6 @@ const Header = () => {
                 <div className="px-3 py-3">
                   <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground mb-1.5">Connected</div>
                   <div className="font-mono text-xs break-all text-foreground/90">{profile.wallet_address}</div>
-                  {profile.chain_id && (
-                    <div className="text-[11px] text-muted-foreground mt-2 font-mono">
-                      Chain · <span className="text-foreground">{profile.chain_id}</span>
-                    </div>
-                  )}
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem>
@@ -871,7 +898,6 @@ const Stats = () => {
 const DashboardPage = () => {
   const { isConnected, profile } = useWalletAuth();
   const addr = profile?.wallet_address ?? null;
-  const { mint, minting } = useMintToken();
 
   const Row = ({ symbol, address }: any) => {
     const token: any = TOKEN_REGISTRY.find((t) => t.symbol === symbol);
@@ -887,20 +913,9 @@ const DashboardPage = () => {
             <div className="font-medium">{token.symbol}</div><div className="text-[11px] text-muted-foreground">{token.name}</div>
           </div>
         </div>
-        <div className="flex items-center gap-4 text-right">
-          {!token.isNative && token.address && (
-            <button 
-              onClick={() => mint(token.symbol, token.address, token.decimals, address)}
-              disabled={minting === token.symbol}
-              className="px-3 py-1.5 text-[11px] font-mono text-foreground bg-secondary/80 hover:bg-primary hover:text-primary-foreground transition-colors rounded-full border border-border/50 disabled:opacity-50"
-            >
-              {minting === token.symbol ? "Minting..." : "+ Faucet"}
-            </button>
-          )}
-          <div>
-            <div className="font-mono text-sm">{loading ? "…" : num.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
-            <div className="text-[11px] text-muted-foreground font-mono">${usd}</div>
-          </div>
+        <div className="text-right">
+          <div className="font-mono text-sm">{loading ? "…" : num.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
+          <div className="text-[11px] text-muted-foreground font-mono">${usd}</div>
         </div>
       </div>
     );
@@ -950,102 +965,104 @@ export default function App() {
   const [currentRoute, setCurrentRoute] = useState("/");
 
   return (
-    <RouterContext.Provider value={{ route: currentRoute, navigate: setCurrentRoute }}>
-      <style>{`
-        :root {
-          --background: 0 0% 3%; --foreground: 0 0% 98%;
-          --card: 0 0% 5%; --card-foreground: 0 0% 98%;
-          --popover: 0 0% 6%; --popover-foreground: 0 0% 98%;
-          --primary: 220 10% 92%; --primary-foreground: 0 0% 4%; --primary-glow: 220 30% 80%;
-          --secondary: 0 0% 9%; --secondary-foreground: 0 0% 98%;
-          --muted: 0 0% 8%; --muted-foreground: 0 0% 55%;
-          --accent: 220 20% 75%; --accent-foreground: 0 0% 4%;
-          --silver: 220 12% 78%; --silver-foreground: 0 0% 4%;
-          --success: 145 70% 55%; --warning: 38 92% 60%;
-          --destructive: 0 75% 55%; --destructive-foreground: 0 0% 98%;
-          --border: 0 0% 12%; --input: 0 0% 10%; --ring: 220 10% 70%;
-          --radius: 1.25rem;
-          --gradient-primary: linear-gradient(135deg, hsl(0 0% 100%) 0%, hsl(220 12% 78%) 50%, hsl(220 8% 55%) 100%);
-          --gradient-silver: linear-gradient(180deg, hsl(0 0% 96%), hsl(220 12% 70%) 60%, hsl(220 10% 45%));
-          --gradient-hero: radial-gradient(ellipse 80% 50% at 50% 0%, hsl(0 0% 18% / 0.6), transparent 70%);
-          --gradient-card: linear-gradient(180deg, hsl(0 0% 7% / 0.8), hsl(0 0% 4% / 0.8));
-          --gradient-line: linear-gradient(90deg, transparent, hsl(0 0% 30%), transparent);
-          --shadow-glow: 0 0 80px hsl(220 10% 80% / 0.08);
-          --shadow-card: 0 30px 60px -30px hsl(0 0% 0% / 0.9), 0 1px 0 0 hsl(0 0% 100% / 0.04) inset;
-          --shadow-elevated: 0 40px 100px -30px hsl(0 0% 0%), 0 1px 0 0 hsl(0 0% 100% / 0.05) inset;
-          --shadow-button: 0 1px 0 0 hsl(0 0% 100% / 0.15) inset, 0 8px 24px -8px hsl(0 0% 0% / 0.6);
-          --transition-smooth: cubic-bezier(0.4, 0, 0.2, 1);
-          --transition-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-        }
-        body {
-          background-color: hsl(var(--background));
-          color: hsl(var(--foreground));
-          font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-          font-feature-settings: "ss01", "cv11";
-          letter-spacing: -0.01em;
-          background-image: radial-gradient(ellipse 100% 60% at 50% -10%, hsl(0 0% 14% / 0.5), transparent 60%), radial-gradient(ellipse 80% 40% at 50% 100%, hsl(220 15% 12% / 0.3), transparent 60%);
-          background-attachment: fixed;
-          margin: 0;
-        }
-        body::before {
-          content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 1; opacity: 0.025;
-          background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-          mix-blend-mode: overlay;
-        }
-        ::-webkit-scrollbar { width: 10px; height: 10px; }
-        ::-webkit-scrollbar-track { background: hsl(var(--background)); }
-        ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 8px; border: 2px solid hsl(var(--background)); }
-        ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.5); }
-        .glass { background: var(--gradient-card); box-shadow: var(--shadow-card); backdrop-filter: blur(40px); border: 1px solid hsl(var(--border)/0.8); }
-        .panel { background-color: hsl(var(--card)/0.8); backdrop-filter: blur(24px); border: 1px solid hsl(var(--border)/0.6); border-radius: 1rem; box-shadow: var(--shadow-card); }
-        .text-silver { background-clip: text; -webkit-text-fill-color: transparent; background-image: var(--gradient-silver); }
-        .btn-silver { background-image: var(--gradient-primary); color: hsl(var(--primary-foreground)); box-shadow: var(--shadow-button); transition: transform 0.2s var(--transition-spring), filter 0.2s ease; }
-        .btn-silver:hover { filter: brightness(1.08); transform: translateY(-1px); }
-        .btn-silver:active { transform: translateY(0); filter: brightness(0.96); }
-        .hairline { height: 1px; background: var(--gradient-line); }
-        .grid-pattern {
-          background-image: linear-gradient(hsl(0 0% 100% / 0.025) 1px, transparent 1px), linear-gradient(90deg, hsl(0 0% 100% / 0.025) 1px, transparent 1px);
-          background-size: 56px 56px; mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black, transparent 80%);
-        }
-        @keyframes chrome-spin { to { transform: rotate(360deg); } }
-        .chrome-ring {
-          background: conic-gradient(hsl(0 0% 30%), hsl(0 0% 95%), hsl(0 0% 30%), hsl(220 10% 80%), hsl(0 0% 30%));
-          animation: chrome-spin 6s linear infinite;
-        }
-        @keyframes fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-        .animate-fade-up { animation: fade-up 0.6s var(--transition-smooth) both; }
-      `}</style>
-      
-      <Toaster theme="dark" position="bottom-right" />
-      
-      <div className="min-h-screen flex flex-col relative z-10 selection:bg-primary/25 selection:text-foreground">
-        <Header />
-        <div className="flex-1">
-          {currentRoute === "/" && (
-            <>
-              <Hero />
-              <main className="container max-w-7xl mx-auto py-16 md:py-20 px-4">
-                <SwapCard />
-              </main>
-            </>
-          )}
-          {currentRoute === "/pools" && <main className="container max-w-7xl mx-auto py-16 px-4 md:py-20"><Pools /></main>}
-          {currentRoute === "/bridge" && <main className="container max-w-7xl mx-auto py-16 px-4 md:py-20"><Bridge /></main>}
-          {currentRoute === "/stats" && <main className="container max-w-7xl mx-auto py-16 px-4 md:py-20"><Stats /></main>}
-          {currentRoute === "/dashboard" && <main className="container max-w-7xl mx-auto py-16 px-4 md:py-20"><DashboardPage /></main>}
-        </div>
-        <footer className="mt-20">
-          <div className="hairline" />
-          <div className="container max-w-7xl mx-auto py-8 px-4 flex flex-col md:flex-row items-center justify-between gap-4 text-[11px] font-mono text-muted-foreground uppercase tracking-[0.18em]">
-            <div>Silverway · Built on LitVM</div>
-            <div className="flex items-center gap-6">
-              <a href="#" className="hover:text-foreground transition-colors">Docs</a>
-              <a href="#" className="hover:text-foreground transition-colors">Twitter</a>
-              <a href="#" className="hover:text-foreground transition-colors">GitHub</a>
-            </div>
+    <WalletProvider>
+      <RouterContext.Provider value={{ route: currentRoute, navigate: setCurrentRoute }}>
+        <style>{`
+          :root {
+            --background: 0 0% 3%; --foreground: 0 0% 98%;
+            --card: 0 0% 5%; --card-foreground: 0 0% 98%;
+            --popover: 0 0% 6%; --popover-foreground: 0 0% 98%;
+            --primary: 220 10% 92%; --primary-foreground: 0 0% 4%; --primary-glow: 220 30% 80%;
+            --secondary: 0 0% 9%; --secondary-foreground: 0 0% 98%;
+            --muted: 0 0% 8%; --muted-foreground: 0 0% 55%;
+            --accent: 220 20% 75%; --accent-foreground: 0 0% 4%;
+            --silver: 220 12% 78%; --silver-foreground: 0 0% 4%;
+            --success: 145 70% 55%; --warning: 38 92% 60%;
+            --destructive: 0 75% 55%; --destructive-foreground: 0 0% 98%;
+            --border: 0 0% 12%; --input: 0 0% 10%; --ring: 220 10% 70%;
+            --radius: 1.25rem;
+            --gradient-primary: linear-gradient(135deg, hsl(0 0% 100%) 0%, hsl(220 12% 78%) 50%, hsl(220 8% 55%) 100%);
+            --gradient-silver: linear-gradient(180deg, hsl(0 0% 96%), hsl(220 12% 70%) 60%, hsl(220 10% 45%));
+            --gradient-hero: radial-gradient(ellipse 80% 50% at 50% 0%, hsl(0 0% 18% / 0.6), transparent 70%);
+            --gradient-card: linear-gradient(180deg, hsl(0 0% 7% / 0.8), hsl(0 0% 4% / 0.8));
+            --gradient-line: linear-gradient(90deg, transparent, hsl(0 0% 30%), transparent);
+            --shadow-glow: 0 0 80px hsl(220 10% 80% / 0.08);
+            --shadow-card: 0 30px 60px -30px hsl(0 0% 0% / 0.9), 0 1px 0 0 hsl(0 0% 100% / 0.04) inset;
+            --shadow-elevated: 0 40px 100px -30px hsl(0 0% 0%), 0 1px 0 0 hsl(0 0% 100% / 0.05) inset;
+            --shadow-button: 0 1px 0 0 hsl(0 0% 100% / 0.15) inset, 0 8px 24px -8px hsl(0 0% 0% / 0.6);
+            --transition-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+          }
+          body {
+            background-color: hsl(var(--background));
+            color: hsl(var(--foreground));
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-feature-settings: "ss01", "cv11";
+            letter-spacing: -0.01em;
+            background-image: radial-gradient(ellipse 100% 60% at 50% -10%, hsl(0 0% 14% / 0.5), transparent 60%), radial-gradient(ellipse 80% 40% at 50% 100%, hsl(220 15% 12% / 0.3), transparent 60%);
+            background-attachment: fixed;
+            margin: 0;
+          }
+          body::before {
+            content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 1; opacity: 0.025;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+            mix-blend-mode: overlay;
+          }
+          ::-webkit-scrollbar { width: 10px; height: 10px; }
+          ::-webkit-scrollbar-track { background: hsl(var(--background)); }
+          ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 8px; border: 2px solid hsl(var(--background)); }
+          ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.5); }
+          .glass { background: var(--gradient-card); box-shadow: var(--shadow-card); backdrop-filter: blur(40px); border: 1px solid hsl(var(--border)/0.8); }
+          .panel { background-color: hsl(var(--card)/0.8); backdrop-filter: blur(24px); border: 1px solid hsl(var(--border)/0.6); border-radius: 1rem; box-shadow: var(--shadow-card); }
+          .text-silver { background-clip: text; -webkit-text-fill-color: transparent; background-image: var(--gradient-silver); }
+          .btn-silver { background-image: var(--gradient-primary); color: hsl(var(--primary-foreground)); box-shadow: var(--shadow-button); transition: transform 0.2s var(--transition-spring), filter 0.2s ease; }
+          .btn-silver:hover { filter: brightness(1.08); transform: translateY(-1px); }
+          .btn-silver:active { transform: translateY(0); filter: brightness(0.96); }
+          .hairline { height: 1px; background: var(--gradient-line); }
+          .grid-pattern {
+            background-image: linear-gradient(hsl(0 0% 100% / 0.025) 1px, transparent 1px), linear-gradient(90deg, hsl(0 0% 100% / 0.025) 1px, transparent 1px);
+            background-size: 56px 56px; mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black, transparent 80%);
+          }
+          @keyframes chrome-spin { to { transform: rotate(360deg); } }
+          .chrome-ring {
+            background: conic-gradient(hsl(0 0% 30%), hsl(0 0% 95%), hsl(0 0% 30%), hsl(220 10% 80%), hsl(0 0% 30%));
+            animation: chrome-spin 6s linear infinite;
+          }
+          @keyframes fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+          .animate-fade-up { animation: fade-up 0.6s var(--transition-smooth) both; }
+        `}</style>
+        
+        <Toaster theme="dark" position="bottom-right" />
+        
+        <div className="min-h-screen flex flex-col relative z-10 selection:bg-primary/25 selection:text-foreground">
+          <Header />
+          <div className="flex-1">
+            {currentRoute === "/" && (
+              <>
+                <Hero />
+                <main className="container max-w-7xl mx-auto py-16 md:py-20 px-4">
+                  <SwapCard />
+                </main>
+              </>
+            )}
+            {currentRoute === "/pools" && <main className="container max-w-7xl mx-auto py-16 px-4 md:py-20"><Pools /></main>}
+            {currentRoute === "/bridge" && <main className="container max-w-7xl mx-auto py-16 px-4 md:py-20"><Bridge /></main>}
+            {currentRoute === "/stats" && <main className="container max-w-7xl mx-auto py-16 px-4 md:py-20"><Stats /></main>}
+            {currentRoute === "/dashboard" && <main className="container max-w-7xl mx-auto py-16 px-4 md:py-20"><DashboardPage /></main>}
           </div>
-        </footer>
-      </div>
-    </RouterContext.Provider>
+          <footer className="mt-20">
+            <div className="hairline" />
+            <div className="container max-w-7xl mx-auto py-8 px-4 flex flex-col md:flex-row items-center justify-between gap-4 text-[11px] font-mono text-muted-foreground uppercase tracking-[0.18em]">
+              <div>Silverway · Built on LitVM</div>
+              <div className="flex items-center gap-6">
+                <a href="#" className="hover:text-foreground transition-colors">Docs</a>
+                <a href="#" className="hover:text-foreground transition-colors">Twitter</a>
+                <a href="#" className="hover:text-foreground transition-colors">GitHub</a>
+              </div>
+            </div>
+          </footer>
+        </div>
+      </RouterContext.Provider>
+    </WalletProvider>
   );
 }
