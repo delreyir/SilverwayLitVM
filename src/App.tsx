@@ -5,13 +5,28 @@ import {
   Activity, Droplets, Repeat, TrendingUp, Plus, ExternalLink, ArrowRight
 } from "lucide-react";
 import { Toaster, toast } from "sonner";
-import { useWalletAuth } from "./hooks/useWalletAuth";
-import { useTokenBalance } from "./hooks/useTokenBalance";
-import { TOKEN_REGISTRY, getToken } from "./lib/chain";
 
 /* =====================================================================
-   1. MOCK DATA & CONFIG
+   1. REAL WEB3 CONFIG & REGISTRY
    ===================================================================== */
+const LITVM_CHAIN_ID = "0x1159"; // 4441 in Hexadecimal
+const LITVM_NETWORK_PARAMS = {
+  chainId: LITVM_CHAIN_ID,
+  chainName: "LitVM LiteForge",
+  nativeCurrency: { name: "LitVM", symbol: "zkLTC", decimals: 18 },
+  rpcUrls: ["https://liteforge.rpc.caldera.xyz/http"],
+  blockExplorerUrls: ["https://liteforge.explorer.caldera.xyz"],
+};
+
+export const TOKEN_REGISTRY = [
+  { symbol: "zkLTC", name: "Native zkLTC", priceUsd: 85.50, icon: "Ł", isNative: true, decimals: 18 },
+  { symbol: "USDC", name: "USD Coin", priceUsd: 1.00, icon: "$", isNative: false, address: "0x6fefE517cAe9924EE3eFbd9423Fd707d55ED3bcA", decimals: 6 },
+  { symbol: "LVM", name: "LitVM Token", priceUsd: 2.30, icon: "V", isNative: false, address: "0xEDEB8183aCd8D93a0E0604c7AD5EdABBA71c45a6", decimals: 18 },
+  { symbol: "WBTC", name: "Wrapped Bitcoin", priceUsd: 64200.00, icon: "₿", isNative: false, address: "0x127Dc73f26D2DA4b6663e71C7Bd5120c77d68AA2", decimals: 8 },
+];
+
+export const getToken = (sym: string) => TOKEN_REGISTRY.find((t) => t.symbol === sym) || TOKEN_REGISTRY[0];
+
 const POOLS = [
   { pair: ["LTC", "USDC"], fee: 0.3, tvl: 8500000, volume24h: 2100000, apr: 12.5 },
   { pair: ["LVM", "LTC"], fee: 0.3, tvl: 4200000, volume24h: 800000, apr: 24.2 },
@@ -21,11 +36,144 @@ const POOLS = [
 const STATS = { tvl: 15200000, volume24h: 3400000, trades24h: 12450, pairs: 24 };
 const TOKENS = TOKEN_REGISTRY.map(t => ({ symbol: t.symbol, name: t.name, price: t.priceUsd }));
 const LITVM_NETWORK = { blockExplorerUrls: ["https://explorer.litvm.com"] };
-const isDexDeployed = () => true; // Set to true to allow mocking swaps
+const isDexDeployed = () => true;
 
 /* =====================================================================
-   2. HOOKS
+   2. REAL WEB3 HOOKS (MetaMask & Rabby)
    ===================================================================== */
+export const useWalletAuth = () => {
+  const [isConnected, setIsConnected] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [profile, setProfile] = useState<{ wallet_address: string; chain_id: string } | null>(null);
+
+  const switchToLitVM = async () => {
+    if (!(window as any).ethereum) return;
+    try {
+      await (window as any).ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: LITVM_CHAIN_ID }] });
+    } catch (switchError: any) {
+      if (switchError.code === 4902) {
+        try {
+          await (window as any).ethereum.request({ method: "wallet_addEthereumChain", params: [LITVM_NETWORK_PARAMS] });
+        } catch (addError) {
+          toast.error("Failed to add the LitVM network to your wallet.");
+        }
+      }
+    }
+  };
+
+  const connect = async () => {
+    if (typeof window === "undefined" || !(window as any).ethereum) {
+      toast.error("Wallet not found!", { description: "Please install MetaMask or Rabby Wallet." });
+      return;
+    }
+    setLoading(true);
+    try {
+      const accounts = await (window as any).ethereum.request({ method: "eth_requestAccounts" });
+      const account = accounts[0];
+      const chainId = await (window as any).ethereum.request({ method: "eth_chainId" });
+
+      setIsConnected(true);
+      setProfile({ wallet_address: account, chain_id: chainId });
+      toast.success("Wallet connected!");
+
+      if (chainId !== LITVM_CHAIN_ID) await switchToLitVM();
+    } catch (error: any) {
+      toast.error("Connection failed", { description: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const disconnect = () => {
+    setIsConnected(false);
+    setProfile(null);
+    toast.info("Wallet disconnected");
+  };
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && (window as any).ethereum) {
+      const handleAccountsChanged = (accounts: string[]) => {
+        if (accounts.length > 0) setProfile((prev) => prev ? { ...prev, wallet_address: accounts[0] } : null);
+        else disconnect();
+      };
+      const handleChainChanged = (chainId: string) => {
+        setProfile((prev) => prev ? { ...prev, chain_id: chainId } : null);
+      };
+
+      (window as any).ethereum.on("accountsChanged", handleAccountsChanged);
+      (window as any).ethereum.on("chainChanged", handleChainChanged);
+
+      return () => {
+        if ((window as any).ethereum.removeListener) {
+          (window as any).ethereum.removeListener("accountsChanged", handleAccountsChanged);
+          (window as any).ethereum.removeListener("chainChanged", handleChainChanged);
+        }
+      };
+    }
+  }, []);
+
+  return { isConnected, profile, loading, connect, disconnect };
+};
+
+export const useTokenBalance = (symbol: string, userAddress?: string | null) => {
+  const [balance, setBalance] = useState<string>("0");
+  const [loading, setLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchBalance = async () => {
+      if (!userAddress || typeof window === "undefined" || !(window as any).ethereum) {
+        if (isMounted) { setBalance("0"); setLoading(false); }
+        return;
+      }
+      setLoading(true);
+      try {
+        const token = getToken(symbol);
+        
+        const formatUnits = (hexStr: string, decimals: number) => {
+          if (!hexStr || hexStr === "0x" || hexStr === "0x0") return "0";
+          try {
+            const val = BigInt(hexStr);
+            const divisor = BigInt(10 ** decimals);
+            const intPart = val / divisor;
+            const fracPart = val % divisor;
+            const fracStr = fracPart.toString().padStart(decimals, '0').slice(0, 4);
+            return `${intPart}.${fracStr}`;
+          } catch (e) {
+            return "0";
+          }
+        };
+
+        if (token.isNative) {
+          const balanceHex = await (window as any).ethereum.request({
+            method: 'eth_getBalance',
+            params: [userAddress, 'latest']
+          });
+          if (isMounted) setBalance(formatUnits(balanceHex, 18));
+        } else if (token.address && token.address !== "0x...") {
+          const data = '0x70a08231' + '000000000000000000000000' + userAddress.slice(2);
+          const balanceHex = await (window as any).ethereum.request({
+            method: 'eth_call',
+            params: [{ to: token.address, data: data }, 'latest']
+          });
+          const decimals = token.decimals || 18;
+          if (isMounted) setBalance(formatUnits(balanceHex, decimals));
+        } else {
+          if (isMounted) setBalance("0");
+        }
+      } catch (error) {
+        if (isMounted) setBalance("0");
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+    fetchBalance();
+    return () => { isMounted = false; };
+  }, [symbol, userAddress]);
+
+  return { balance, loading };
+};
+
 const useSwapQuote = (from: string, to: string, amount: string, slippage: number) => {
   const [loading, setLoading] = useState(false);
   const [quote, setQuote] = useState<any>(null);
@@ -37,10 +185,10 @@ const useSwapQuote = (from: string, to: string, amount: string, slippage: number
     }
     setLoading(true);
     const timer = setTimeout(() => {
-      const fromPrice = getToken(from).priceUsd;
-      const toPrice = getToken(to).priceUsd;
+      const fromPrice = getToken(from).priceUsd || 1;
+      const toPrice = getToken(to).priceUsd || 1;
       const rate = fromPrice / toPrice;
-      const out = parseFloat(amount) * rate * 0.997; // 0.3% fee mock
+      const out = parseFloat(amount) * rate * 0.997;
       setQuote({
         amountOut: out.toFixed(6),
         minOut: (out * (1 - slippage / 100)).toFixed(6),
@@ -68,7 +216,6 @@ const useSwap = () => {
 /* =====================================================================
    3. CUSTOM UI COMPONENTS
    ===================================================================== */
-// Router Mock
 const RouterContext = createContext({ route: '/', navigate: (route: string) => {} });
 
 const Link = ({ to, children, className, onClick }: any) => {
@@ -88,7 +235,6 @@ const NavLink = ({ to, children, className }: any) => {
   const { route, navigate } = useContext(RouterContext);
   const isActive = route === to || (to !== '/' && route.startsWith(to));
   const classes = typeof className === 'function' ? className({ isActive }) : className;
-  
   return (
     <a href={to} className={classes} onClick={(e) => { e.preventDefault(); navigate(to); }}>
       {children}
@@ -96,7 +242,6 @@ const NavLink = ({ to, children, className }: any) => {
   );
 };
 
-// Dropdown Mock
 const DropdownContext = createContext<any>(null);
 const DropdownMenu = ({ children }: any) => {
   const [open, setOpen] = useState(false);
@@ -118,15 +263,13 @@ const DropdownMenuContent = ({ children, className }: any) => {
 const DropdownMenuItem = ({ children, onClick, className }: any) => {
   const { setOpen } = useContext(DropdownContext);
   return (
-    <div onClick={(e) => { setOpen(false); if(onClick) onClick(e); }} 
-         className={`relative flex cursor-pointer items-center px-3 py-2 text-[13px] hover:bg-secondary/60 transition-colors ${className}`}>
+    <div onClick={(e) => { setOpen(false); if(onClick) onClick(e); }} className={`relative flex cursor-pointer items-center px-3 py-2 text-[13px] hover:bg-secondary/60 transition-colors ${className}`}>
       {children}
     </div>
   );
 };
 const DropdownMenuSeparator = () => <div className="h-px bg-border/50 mx-2 my-1" />;
 
-// Dialog Mock
 const Dialog = ({ open, onOpenChange, children }: any) => (
   <>{React.Children.map(children, child => React.cloneElement(child, { open, onOpenChange }))}</>
 );
@@ -142,8 +285,7 @@ const DialogContent = ({ children, open, onOpenChange, className }: any) => {
     </div>
   );
 };
-const DialogHeader = ({ children }: any) => <div className="mb-4">{children}</div>;
-const DialogTitle = ({ children }: any) => <h2 className="text-lg font-semibold tracking-tight">{children}</h2>;
+const DialogTitle = ({ children }: any) => <h2 className="text-lg font-semibold tracking-tight mb-4">{children}</h2>;
 
 const Button = ({ className, disabled, children, ...props }: any) => (
   <button disabled={disabled} className={`inline-flex items-center justify-center rounded-full text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${className}`} {...props}>
@@ -174,7 +316,7 @@ const Logo = ({ className = "" }) => (
 );
 
 const TokenIcon = ({ symbol, size = 32 }: { symbol: string, size?: number }) => {
-  const token = TOKEN_REGISTRY.find((t) => t.symbol === symbol) ?? getToken(symbol);
+  const token = getToken(symbol);
   if (!token) return null;
   return (
     <div
@@ -293,11 +435,7 @@ const Header = () => {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <Button
-              onClick={connect}
-              disabled={loading}
-              className="btn-silver h-9 px-4 rounded-full font-medium text-[13px] gap-1.5 flex"
-            >
+            <Button onClick={connect} disabled={loading} className="btn-silver h-9 px-4 rounded-full font-medium text-[13px] gap-1.5 flex">
               <Wallet className="h-3.5 w-3.5" />
               {loading ? "Signing…" : "Connect"}
             </Button>
@@ -312,44 +450,32 @@ const Hero = () => (
   <section className="relative overflow-hidden">
     <div className="absolute inset-0 grid-pattern opacity-60" />
     <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background pointer-events-none" />
-
     <div className="absolute left-1/2 -translate-x-1/2 top-32 h-[480px] w-[480px] rounded-full bg-gradient-to-b from-foreground/[0.08] to-transparent blur-3xl pointer-events-none" />
 
     <div className="container relative pt-20 pb-16 md:pt-32 md:pb-24">
       <div className="max-w-4xl mx-auto text-center animate-fade-up">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-secondary/60 border border-border/60 text-[11px] font-mono uppercase tracking-[0.18em] text-muted-foreground mb-8">
-          <span className="h-1 w-1 rounded-full bg-foreground/80" />
-          Native AMM · LitVM LiteForge
+          <span className="h-1 w-1 rounded-full bg-foreground/80" /> Native AMM · LitVM LiteForge
         </div>
 
         <h1 className="text-[clamp(2.5rem,7vw,5.5rem)] font-semibold leading-[0.95] tracking-[-0.04em] mb-6">
-          Liquidity, refined.
-          <br />
-          <span className="text-silver">Built on Litecoin.</span>
+          Liquidity, refined.<br /><span className="text-silver">Built on Litecoin.</span>
         </h1>
 
         <p className="text-base md:text-lg text-muted-foreground max-w-xl mx-auto leading-relaxed mb-10">
-          A precision DEX for the Litecoin Virtual Machine. Trustless swaps,
-          deep liquidity, settled by zero-knowledge.
+          A precision DEX for the Litecoin Virtual Machine. Trustless swaps, deep liquidity, settled by zero-knowledge.
         </p>
 
         <div className="flex items-center justify-center gap-3">
           <button className="btn-silver h-11 px-5 rounded-full font-medium text-sm inline-flex items-center gap-1.5">
-            Open exchange
-            <ArrowUpRight className="h-4 w-4" />
+            Open exchange <ArrowUpRight className="h-4 w-4" />
           </button>
-          <a
-            href="https://docs.litvm.com/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="h-11 px-5 rounded-full font-medium text-sm inline-flex items-center gap-1.5 bg-secondary/60 border border-border/60 hover:border-border transition-colors"
-          >
+          <a href="https://docs.litvm.com/" target="_blank" rel="noopener noreferrer" className="h-11 px-5 rounded-full font-medium text-sm inline-flex items-center gap-1.5 bg-secondary/60 border border-border/60 hover:border-border transition-colors">
             Read docs
           </a>
         </div>
       </div>
     </div>
-
     <div className="hairline" />
   </section>
 );
@@ -362,10 +488,7 @@ const TokenSelect = ({ value, onChange, exclude }: any) => {
 
   const token = getToken(value);
   const filtered = TOKEN_REGISTRY.filter(
-    (t) =>
-      t.symbol !== exclude &&
-      (t.symbol.toLowerCase().includes(q.toLowerCase()) ||
-        t.name.toLowerCase().includes(q.toLowerCase()))
+    (t) => t.symbol !== exclude && (t.symbol.toLowerCase().includes(q.toLowerCase()) || t.name.toLowerCase().includes(q.toLowerCase()))
   );
 
   return (
@@ -379,15 +502,10 @@ const TokenSelect = ({ value, onChange, exclude }: any) => {
       </DialogTrigger>
       <DialogContent className="!p-0 border-border/80 panel overflow-hidden">
         <div className="p-4 border-b border-border/50">
-          <DialogTitle className="mb-4">Select a token</DialogTitle>
+          <DialogTitle>Select a token</DialogTitle>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              value={q}
-              onChange={(e: any) => setQ(e.target.value)}
-              placeholder="Search name or symbol"
-              className="pl-9 bg-secondary/40 border-border/50 rounded-xl h-10"
-            />
+            <Input value={q} onChange={(e: any) => setQ(e.target.value)} placeholder="Search name or symbol" className="pl-9 bg-secondary/40 border-border/50 rounded-xl h-10" />
           </div>
         </div>
         <div className="max-h-80 overflow-y-auto p-2">
@@ -397,10 +515,7 @@ const TokenSelect = ({ value, onChange, exclude }: any) => {
               const num = parseFloat(balance);
               const usd = (num * (t.priceUsd ?? 0)).toLocaleString(undefined, { maximumFractionDigits: 2 });
               return (
-                <button
-                  onClick={() => { onChange(t.symbol); setOpen(false); }}
-                  className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-secondary/60 transition-colors"
-                >
+                <button onClick={() => { onChange(t.symbol); setOpen(false); }} className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-secondary/60 transition-colors">
                   <div className="flex items-center gap-3">
                     <TokenIcon symbol={t.symbol} size={36} />
                     <div className="text-left">
@@ -458,9 +573,7 @@ const SwapCard = () => {
     : output ? (parseFloat(output) * (1 - slippage / 100)).toFixed(6) : "0";
 
   const flip = () => {
-    setFrom(to);
-    setTo(from);
-    setAmount(output || "");
+    setFrom(to); setTo(from); setAmount(output || "");
   };
 
   const Row = ({ label, value, highlight }: any) => (
@@ -479,23 +592,14 @@ const SwapCard = () => {
           <h2 className="font-semibold text-[17px] tracking-tight">Swap</h2>
           <div className="flex items-center gap-1 p-0.5 rounded-full bg-secondary/60 border border-border/50">
             {[0.1, 0.5, 1].map((s) => (
-              <button
-                key={s}
-                onClick={() => setSlippage(s)}
-                className={`px-2.5 py-1 text-[11px] font-mono rounded-full transition-all ${
-                  slippage === s ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
+              <button key={s} onClick={() => setSlippage(s)} className={`px-2.5 py-1 text-[11px] font-mono rounded-full transition-all ${slippage === s ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"}`}>
                 {s}%
               </button>
             ))}
-            <button className="ml-0.5 p-1 rounded-full text-muted-foreground hover:text-foreground transition-colors">
-              <Settings2 className="h-3.5 w-3.5" />
-            </button>
+            <button className="ml-0.5 p-1 rounded-full text-muted-foreground hover:text-foreground transition-colors"><Settings2 className="h-3.5 w-3.5" /></button>
           </div>
         </div>
 
-        {/* Pay Section */}
         <div className="rounded-2xl bg-secondary/40 border border-border/50 p-4 transition-colors hover:bg-secondary/60">
           <div className="flex justify-between text-[11px] text-muted-foreground mb-2 font-mono uppercase tracking-wider">
             <span>Pay</span>
@@ -504,13 +608,7 @@ const SwapCard = () => {
             </button>
           </div>
           <div className="flex items-center gap-3">
-            <input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0"
-              className="flex-1 bg-transparent text-[34px] font-medium tracking-tight outline-none placeholder:text-muted-foreground/30 min-w-0"
-            />
+            <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" className="flex-1 bg-transparent text-[34px] font-medium tracking-tight outline-none placeholder:text-muted-foreground/30 min-w-0" />
             <TokenSelect value={from} onChange={setFrom} exclude={to} />
           </div>
           <div className="text-[11px] text-muted-foreground mt-1 font-mono">
@@ -518,26 +616,19 @@ const SwapCard = () => {
           </div>
         </div>
 
-        {/* Flip Button */}
         <div className="flex justify-center -my-2.5 relative z-10">
           <button onClick={flip} className="h-9 w-9 rounded-xl bg-card border-[3px] border-background hover:bg-foreground hover:text-background transition-all duration-300 flex items-center justify-center group">
             <ArrowDown className="h-3.5 w-3.5 transition-transform duration-300 group-hover:rotate-180" />
           </button>
         </div>
 
-        {/* Receive Section */}
         <div className="rounded-2xl bg-secondary/40 border border-border/50 p-4 transition-colors hover:bg-secondary/60">
           <div className="flex justify-between text-[11px] text-muted-foreground mb-2 font-mono uppercase tracking-wider">
             <span>Receive</span>
             <span className="normal-case">{parseFloat(toBalance).toFixed(4)}</span>
           </div>
           <div className="flex items-center gap-3">
-            <input
-              readOnly
-              value={output}
-              placeholder="0"
-              className="flex-1 bg-transparent text-[34px] font-medium tracking-tight outline-none placeholder:text-muted-foreground/30 min-w-0"
-            />
+            <input readOnly value={output} placeholder="0" className="flex-1 bg-transparent text-[34px] font-medium tracking-tight outline-none placeholder:text-muted-foreground/30 min-w-0" />
             <TokenSelect value={to} onChange={setTo} exclude={from} />
           </div>
           <div className="text-[11px] text-muted-foreground mt-1 font-mono">
@@ -545,7 +636,6 @@ const SwapCard = () => {
           </div>
         </div>
 
-        {/* Route Info */}
         {amount && (
           <div className="mt-3 px-1 space-y-1.5 text-[11px] font-mono">
             <Row label="Rate" value={`1 ${from} = ${rate.toFixed(4)} ${to}`} />
@@ -592,7 +682,6 @@ const Pools = () => {
           <Plus className="h-4 w-4" /> New position
         </button>
       </div>
-
       <div className="panel rounded-2xl overflow-hidden">
         <div className="hidden md:grid grid-cols-12 px-6 py-3 text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-mono border-b border-border/60">
           <div className="col-span-4">Pool</div>
@@ -604,28 +693,13 @@ const Pools = () => {
         {POOLS.map((p, i) => (
           <div key={i} className="grid grid-cols-2 md:grid-cols-12 gap-2 px-6 py-4 hover:bg-secondary/30 transition-colors cursor-pointer border-b border-border/40 last:border-0">
             <div className="col-span-2 md:col-span-4 flex items-center gap-3">
-              <div className="flex -space-x-2">
-                <TokenIcon symbol={p.pair[0]} size={32} />
-                <TokenIcon symbol={p.pair[1]} size={32} />
-              </div>
+              <div className="flex -space-x-2"><TokenIcon symbol={p.pair[0]} size={32} /><TokenIcon symbol={p.pair[1]} size={32} /></div>
               <div className="font-medium">{p.pair[0]} / {p.pair[1]}</div>
             </div>
-            <div className="col-span-2 md:col-span-2 md:text-right">
-              <span className="md:hidden text-[10px] uppercase font-mono text-muted-foreground mr-2">Fee</span>
-              <span className="font-mono text-sm">{p.fee}%</span>
-            </div>
-            <div className="col-span-1 md:col-span-2 md:text-right">
-              <div className="md:hidden text-[10px] uppercase font-mono text-muted-foreground">TVL</div>
-              <span className="font-mono">{fmt(p.tvl)}</span>
-            </div>
-            <div className="col-span-1 md:col-span-2 md:text-right">
-              <div className="md:hidden text-[10px] uppercase font-mono text-muted-foreground">Volume</div>
-              <span className="font-mono">{fmt(p.volume24h)}</span>
-            </div>
-            <div className="col-span-2 md:col-span-2 md:text-right flex md:justify-end items-center gap-1">
-              <TrendingUp className="h-3.5 w-3.5 text-success" />
-              <span className="font-mono font-semibold text-success">{p.apr}%</span>
-            </div>
+            <div className="col-span-2 md:col-span-2 md:text-right"><span className="md:hidden text-[10px] uppercase font-mono text-muted-foreground mr-2">Fee</span><span className="font-mono text-sm">{p.fee}%</span></div>
+            <div className="col-span-1 md:col-span-2 md:text-right"><div className="md:hidden text-[10px] uppercase font-mono text-muted-foreground">TVL</div><span className="font-mono">{fmt(p.tvl)}</span></div>
+            <div className="col-span-1 md:col-span-2 md:text-right"><div className="md:hidden text-[10px] uppercase font-mono text-muted-foreground">Volume</div><span className="font-mono">{fmt(p.volume24h)}</span></div>
+            <div className="col-span-2 md:col-span-2 md:text-right flex md:justify-end items-center gap-1"><TrendingUp className="h-3.5 w-3.5 text-success" /><span className="font-mono font-semibold text-success">{p.apr}%</span></div>
           </div>
         ))}
       </div>
@@ -642,8 +716,7 @@ const Bridge = () => {
 
   const Row = ({ icon, label, value }: any) => (
     <div className="flex items-center justify-between px-1 py-1">
-      <span className="text-muted-foreground inline-flex items-center gap-1.5">{icon}{label}</span>
-      <span className="text-foreground/90">{value}</span>
+      <span className="text-muted-foreground inline-flex items-center gap-1.5">{icon}{label}</span><span className="text-foreground/90">{value}</span>
     </div>
   );
 
@@ -655,15 +728,13 @@ const Bridge = () => {
 
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2.5 mb-5">
           <div className="rounded-2xl bg-secondary/40 border border-border/50 p-3.5 text-center">
-            <div className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground mb-1">From</div>
-            <div className="font-medium">{fromChain}</div>
+            <div className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground mb-1">From</div><div className="font-medium">{fromChain}</div>
           </div>
           <button onClick={() => setDirection(direction === "to" ? "from" : "to")} className="h-9 w-9 rounded-xl bg-card border border-border hover:bg-foreground hover:text-background transition-all flex items-center justify-center">
             <ArrowRight className="h-4 w-4" />
           </button>
           <div className="rounded-2xl bg-secondary/40 border border-border/50 p-3.5 text-center">
-            <div className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground mb-1">To</div>
-            <div className="font-medium">{toChain}</div>
+            <div className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground mb-1">To</div><div className="font-medium">{toChain}</div>
           </div>
         </div>
 
@@ -704,9 +775,7 @@ const Stats = () => {
         {cards.map((c) => (
           <div key={c.label} className="panel rounded-2xl p-5 hover:border-border transition-colors">
             <div className="flex items-center justify-between mb-4">
-              <div className="h-8 w-8 rounded-lg bg-secondary/80 border border-border/60 flex items-center justify-center">
-                <c.icon className="h-3.5 w-3.5 text-foreground/70" />
-              </div>
+              <div className="h-8 w-8 rounded-lg bg-secondary/80 border border-border/60 flex items-center justify-center"><c.icon className="h-3.5 w-3.5 text-foreground/70" /></div>
               <span className="text-[11px] font-mono text-success">{c.change}</span>
             </div>
             <div className="text-2xl font-semibold tracking-tight">{c.value}</div>
@@ -727,8 +796,7 @@ const Stats = () => {
                 <span className="text-[11px] font-mono text-muted-foreground w-5">{String(i + 1).padStart(2, "0")}</span>
                 <TokenIcon symbol={t.symbol} size={36} />
                 <div>
-                  <div className="font-medium">{t.symbol}</div>
-                  <div className="text-[11px] text-muted-foreground">{t.name}</div>
+                  <div className="font-medium">{t.symbol}</div><div className="text-[11px] text-muted-foreground">{t.name}</div>
                 </div>
               </div>
               <div className="text-right font-mono">
@@ -757,8 +825,7 @@ const DashboardPage = () => {
         <div className="flex items-center gap-3">
           <TokenIcon symbol={token.symbol} size={40} />
           <div>
-            <div className="font-medium">{token.symbol}</div>
-            <div className="text-[11px] text-muted-foreground">{token.name}</div>
+            <div className="font-medium">{token.symbol}</div><div className="text-[11px] text-muted-foreground">{token.name}</div>
           </div>
         </div>
         <div className="text-right">
@@ -773,14 +840,10 @@ const DashboardPage = () => {
     return (
       <main className="container py-24">
         <div className="max-w-md mx-auto text-center panel rounded-3xl p-12 animate-fade-up">
-          <div className="h-12 w-12 mx-auto rounded-2xl bg-secondary/80 border border-border/60 flex items-center justify-center mb-5">
-            <Wallet className="h-5 w-5 text-foreground/70" />
-          </div>
+          <div className="h-12 w-12 mx-auto rounded-2xl bg-secondary/80 border border-border/60 flex items-center justify-center mb-5"><Wallet className="h-5 w-5 text-foreground/70" /></div>
           <h2 className="text-2xl font-semibold tracking-tight mb-2">Connect your wallet</h2>
           <p className="text-sm text-muted-foreground mb-6">Sign in with your wallet to see your LitVM balances and activity.</p>
-          <Link to="/" className="btn-silver inline-flex h-11 px-5 rounded-full font-medium text-[13px] items-center">
-            Open exchange
-          </Link>
+          <Link to="/" className="btn-silver inline-flex h-11 px-5 rounded-full font-medium text-[13px] items-center">Open exchange</Link>
         </div>
       </main>
     );
@@ -796,28 +859,19 @@ const DashboardPage = () => {
             <h1 className="text-[clamp(2rem,4vw,3rem)] font-semibold tracking-[-0.035em] mb-1">Portfolio</h1>
             <p className="text-[12px] text-muted-foreground font-mono break-all">{addr}</p>
           </div>
-          <a href={explorer} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-[12px] font-mono text-muted-foreground hover:text-foreground transition-colors">
-            Explorer <ExternalLink className="h-3 w-3" />
-          </a>
+          <a href={explorer} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-[12px] font-mono text-muted-foreground hover:text-foreground transition-colors">Explorer <ExternalLink className="h-3 w-3" /></a>
         </div>
         <div className="panel rounded-2xl p-2">
           <div className="px-4 py-3 flex items-center justify-between">
-            <h2 className="font-semibold tracking-tight">Balances</h2>
-            <span className="text-[10px] uppercase font-mono tracking-[0.18em] text-muted-foreground">LiteForge</span>
+            <h2 className="font-semibold tracking-tight">Balances</h2><span className="text-[10px] uppercase font-mono tracking-[0.18em] text-muted-foreground">LiteForge</span>
           </div>
           <div className="hairline mb-1" />
-          <div>
-            {TOKEN_REGISTRY.map((t) => <Row key={t.symbol} symbol={t.symbol} address={addr} />)}
-          </div>
+          <div>{TOKEN_REGISTRY.map((t) => <Row key={t.symbol} symbol={t.symbol} address={addr} />)}</div>
         </div>
-        <p className="text-[11px] text-muted-foreground mt-4 font-mono leading-relaxed">
-          Native zkLTC is fetched live from the rollup RPC. ERC20 balances activate once their testnet contract addresses are wired into <span className="text-foreground/80">src/lib/chain.ts</span>.
-        </p>
       </div>
     </main>
   );
 };
-
 
 /* =====================================================================
    5. MAIN APP WIRING
