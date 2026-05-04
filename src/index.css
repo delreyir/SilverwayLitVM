@@ -1,0 +1,211 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800;900&family=Geist+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =====================================================================
+   Silverway — Carbon Black + Neon Silver
+   Minimalist Apple-style design tokens.
+   ===================================================================== */
+
+@layer base {
+  :root {
+    --background: 0 0% 3%;
+    --foreground: 0 0% 98%;
+
+    --card: 0 0% 5%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 0 0% 6%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 220 10% 92%;
+    --primary-foreground: 0 0% 4%;
+    --primary-glow: 220 30% 80%;
+
+    --secondary: 0 0% 9%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 0 0% 8%;
+    --muted-foreground: 0 0% 55%;
+
+    --accent: 220 20% 75%;
+    --accent-foreground: 0 0% 4%;
+
+    --silver: 220 12% 78%;
+    --silver-foreground: 0 0% 4%;
+
+    --success: 145 70% 55%;
+    --warning: 38 92% 60%;
+
+    --destructive: 0 75% 55%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 0 0% 12%;
+    --input: 0 0% 10%;
+    --ring: 220 10% 70%;
+
+    --radius: 1.25rem;
+
+    --gradient-primary: linear-gradient(135deg, hsl(0 0% 100%) 0%, hsl(220 12% 78%) 50%, hsl(220 8% 55%) 100%);
+    --gradient-silver: linear-gradient(180deg, hsl(0 0% 96%), hsl(220 12% 70%) 60%, hsl(220 10% 45%));
+    --gradient-hero: radial-gradient(ellipse 80% 50% at 50% 0%, hsl(0 0% 18% / 0.6), transparent 70%);
+    --gradient-card: linear-gradient(180deg, hsl(0 0% 7% / 0.8), hsl(0 0% 4% / 0.8));
+    --gradient-line: linear-gradient(90deg, transparent, hsl(0 0% 30%), transparent);
+
+    --shadow-glow: 0 0 80px hsl(220 10% 80% / 0.08);
+    --shadow-card: 0 30px 60px -30px hsl(0 0% 0% / 0.9), 0 1px 0 0 hsl(0 0% 100% / 0.04) inset;
+    --shadow-elevated: 0 40px 100px -30px hsl(0 0% 0%), 0 1px 0 0 hsl(0 0% 100% / 0.05) inset;
+    --shadow-button: 0 1px 0 0 hsl(0 0% 100% / 0.15) inset, 0 8px 24px -8px hsl(0 0% 0% / 0.6);
+
+    --transition-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Geist', system-ui, -apple-system, sans-serif;
+    font-feature-settings: "ss01", "cv11";
+    letter-spacing: -0.01em;
+    background-image:
+      radial-gradient(ellipse 100% 60% at 50% -10%, hsl(0 0% 14% / 0.5), transparent 60%),
+      radial-gradient(ellipse 80% 40% at 50% 100%, hsl(220 15% 12% / 0.3), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  h1, h2, h3, h4 {
+    letter-spacing: -0.035em;
+    font-weight: 600;
+  }
+
+  .font-mono {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    letter-spacing: 0;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    mix-blend-mode: overlay;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.25);
+    color: hsl(var(--foreground));
+  }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: hsl(var(--background)); }
+  ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 8px; border: 2px solid hsl(var(--background)); }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.5); }
+}
+
+@layer components {
+  .glass {
+    background: var(--gradient-card);
+    @apply backdrop-blur-2xl border border-border/80;
+    box-shadow: var(--shadow-card);
+  }
+
+  .panel {
+    @apply bg-card/80 backdrop-blur-xl border border-border/60 rounded-2xl;
+    box-shadow: var(--shadow-card);
+  }
+
+  .glow-primary { box-shadow: var(--shadow-glow); }
+
+  .text-silver {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-silver);
+  }
+
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-primary);
+  }
+
+  .bg-gradient-primary {
+    background-image: var(--gradient-primary);
+  }
+
+  .btn-silver {
+    background-image: var(--gradient-primary);
+    color: hsl(var(--primary-foreground));
+    box-shadow: var(--shadow-button);
+    transition: transform 0.2s var(--transition-spring), filter 0.2s ease;
+  }
+  .btn-silver:hover { filter: brightness(1.08); transform: translateY(-1px); }
+  .btn-silver:active { transform: translateY(0); filter: brightness(0.96); }
+
+  .hairline {
+    height: 1px;
+    background: var(--gradient-line);
+  }
+
+  .grid-pattern {
+    background-image:
+      linear-gradient(hsl(0 0% 100% / 0.025) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(0 0% 100% / 0.025) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black, transparent 80%);
+  }
+
+  .chrome-ring {
+    background:
+      conic-gradient(from var(--angle, 0deg),
+        hsl(0 0% 30%), hsl(0 0% 95%), hsl(0 0% 30%),
+        hsl(220 10% 80%), hsl(0 0% 30%));
+    animation: chrome-spin 6s linear infinite;
+  }
+}
+
+@property --angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes chrome-spin {
+  to { --angle: 360deg; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes spin-slow { to { transform: rotate(360deg); } }
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-float { animation: float 6s ease-in-out infinite; }
+.animate-pulse-glow { animation: pulse-glow 3s ease-in-out infinite; }
+.animate-spin-slow { animation: spin-slow 30s linear infinite; }
+.animate-fade-up { animation: fade-up 0.6s var(--transition-smooth) both; }
