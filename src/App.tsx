@@ -4,19 +4,14 @@ import {
   Search, ArrowDown, Settings2, Loader2, Shield, Zap, 
   Activity, Droplets, Repeat, TrendingUp, Plus, ExternalLink, ArrowRight
 } from "lucide-react";
+import { Toaster, toast } from "sonner";
+import { useWalletAuth } from "./hooks/useWalletAuth";
+import { useTokenBalance } from "./hooks/useTokenBalance";
+import { TOKEN_REGISTRY, getToken } from "./lib/chain";
 
 /* =====================================================================
    1. MOCK DATA & CONFIG
    ===================================================================== */
-const TOKEN_REGISTRY = [
-  { symbol: "LTC", name: "Litecoin", priceUsd: 85.50, icon: "Ł" },
-  { symbol: "USDC", name: "USD Coin", priceUsd: 1.00, icon: "$" },
-  { symbol: "LVM", name: "LitVM Token", priceUsd: 2.30, icon: "V" },
-  { symbol: "WBTC", name: "Wrapped Bitcoin", priceUsd: 64200.00, icon: "₿" },
-];
-
-const getToken = (sym: string) => TOKEN_REGISTRY.find(t => t.symbol === sym) || TOKEN_REGISTRY[0];
-
 const POOLS = [
   { pair: ["LTC", "USDC"], fee: 0.3, tvl: 8500000, volume24h: 2100000, apr: 12.5 },
   { pair: ["LVM", "LTC"], fee: 0.3, tvl: 4200000, volume24h: 800000, apr: 24.2 },
@@ -29,46 +24,8 @@ const LITVM_NETWORK = { blockExplorerUrls: ["https://explorer.litvm.com"] };
 const isDexDeployed = () => true; // Set to true to allow mocking swaps
 
 /* =====================================================================
-   2. MOCK HOOKS
+   2. HOOKS
    ===================================================================== */
-const useWalletAuth = () => {
-  const [isConnected, setIsConnected] = useState(false);
-  const [loading, setLoading] = useState(false);
-  
-  const connect = () => {
-    setLoading(true);
-    setTimeout(() => { setIsConnected(true); setLoading(false); }, 1200);
-  };
-  const disconnect = () => setIsConnected(false);
-  
-  const profile = isConnected ? { 
-    wallet_address: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F", 
-    chain_id: "LitVM Testnet" 
-  } : null;
-  
-  return { isConnected, profile, loading, connect, disconnect };
-};
-
-const useTokenBalance = (symbol: string, address: string | null) => {
-  const [loading, setLoading] = useState(true);
-  const [balance, setBalance] = useState("0");
-
-  useEffect(() => {
-    if (address) {
-      setLoading(true);
-      setTimeout(() => {
-        setBalance((Math.random() * 150).toFixed(4));
-        setLoading(false);
-      }, 500);
-    } else {
-      setBalance("0");
-      setLoading(false);
-    }
-  }, [symbol, address]);
-
-  return { balance, loading };
-};
-
 const useSwapQuote = (from: string, to: string, amount: string, slippage: number) => {
   const [loading, setLoading] = useState(false);
   const [quote, setQuote] = useState<any>(null);
@@ -109,7 +66,7 @@ const useSwap = () => {
 };
 
 /* =====================================================================
-   3. CUSTOM UI COMPONENTS (Mocking Shadcn/Radix)
+   3. CUSTOM UI COMPONENTS
    ===================================================================== */
 // Router Mock
 const RouterContext = createContext({ route: '/', navigate: (route: string) => {} });
@@ -136,43 +93,6 @@ const NavLink = ({ to, children, className }: any) => {
     <a href={to} className={classes} onClick={(e) => { e.preventDefault(); navigate(to); }}>
       {children}
     </a>
-  );
-};
-
-// Toast Mock
-let toastQueue: any[] = [];
-let toastListener: any = null;
-const toast = {
-  success: (title: string, opts?: any) => addToast('success', title, opts),
-  info: (title: string, opts?: any) => addToast('info', title, opts),
-  error: (title: string, opts?: any) => addToast('error', title, opts),
-};
-const addToast = (type: string, title: string, opts: any) => {
-  const id = Math.random().toString();
-  toastQueue = [...toastQueue, { id, type, title, ...opts }];
-  if (toastListener) toastListener(toastQueue);
-  setTimeout(() => {
-    toastQueue = toastQueue.filter(t => t.id !== id);
-    if (toastListener) toastListener([...toastQueue]);
-  }, 4000);
-};
-
-const ToasterMock = () => {
-  const [toasts, setToasts] = useState<any[]>([]);
-  useEffect(() => { toastListener = setToasts; return () => toastListener = null; }, []);
-  return (
-    <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
-      {toasts.map(t => (
-        <div key={t.id} className="panel p-4 rounded-2xl shadow-[var(--shadow-elevated)] border border-border/80 bg-card/95 backdrop-blur-xl pointer-events-auto flex gap-3 min-w-[300px] animate-fade-up">
-          {t.type === 'success' && <div className="mt-0.5 h-5 w-5 rounded-full bg-success/20 flex items-center justify-center"><Check className="text-success h-3.5 w-3.5"/></div>}
-          {t.type === 'info' && <div className="mt-0.5 h-5 w-5 rounded-full bg-primary/20 flex items-center justify-center"><Settings2 className="text-primary h-3.5 w-3.5"/></div>}
-          <div>
-            <div className="font-semibold text-[14px] text-foreground tracking-tight">{t.title}</div>
-            {t.description && <div className="text-[13px] text-muted-foreground mt-1">{t.description}</div>}
-          </div>
-        </div>
-      ))}
-    </div>
   );
 };
 
@@ -236,7 +156,7 @@ const Input = ({ className, ...props }: any) => (
 
 
 /* =====================================================================
-   4. APP COMPONENTS (From User's Code)
+   4. APP COMPONENTS
    ===================================================================== */
 const Logo = ({ className = "" }) => (
   <div className={`flex items-center gap-2.5 ${className}`}>
@@ -907,7 +827,7 @@ export default function App() {
 
   return (
     <RouterContext.Provider value={{ route: currentRoute, navigate: setCurrentRoute }}>
-      <ToasterMock />
+      <Toaster theme="dark" position="bottom-right" />
       
       <div className="min-h-screen flex flex-col relative z-10 selection:bg-primary/25 selection:text-foreground">
         <Header />
