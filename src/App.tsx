@@ -18,6 +18,8 @@ const LITVM_NETWORK_PARAMS = {
   blockExplorerUrls: ["https://liteforge.explorer.caldera.xyz"],
 };
 
+// MOLA7ADA: Ila knti derti deploy l-contracts b addresses jdad f Remix, 
+// beddel had l-addresses hna bach y-khedmo m3a l-faucet jdid dialk.
 export const TOKEN_REGISTRY = [
   { symbol: "zkLTC", name: "Native zkLTC", priceUsd: 85.50, icon: "Ł", isNative: true, decimals: 18 },
   { symbol: "USDC", name: "USD Coin", priceUsd: 1.00, icon: "$", isNative: false, address: "0x6fefE517cAe9924EE3eFbd9423Fd707d55ED3bcA", decimals: 6 },
@@ -39,7 +41,7 @@ const LITVM_NETWORK = { blockExplorerUrls: ["https://explorer.litvm.com"] };
 const isDexDeployed = () => true;
 
 /* =====================================================================
-   2. REAL WEB3 HOOKS (MetaMask & Rabby)
+   2. REAL WEB3 HOOKS
    ===================================================================== */
 export const useWalletAuth = () => {
   const [isConnected, setIsConnected] = useState<boolean>(false);
@@ -173,6 +175,61 @@ export const useTokenBalance = (symbol: string, userAddress?: string | null) => 
 
   return { balance, loading };
 };
+
+// HADA L-HOOK JDID DIAL MINT (FAUCET) BLA MAT7TAJ ETHERS.JS ==========================
+export const useMintToken = () => {
+  const [minting, setMinting] = useState<string | null>(null);
+
+  const mint = async (symbol: string, tokenAddress: string, decimals: number, userAddress: string) => {
+    try {
+      setMinting(symbol);
+      if (!(window as any).ethereum) throw new Error("Wallet not found!");
+      
+      const amountToMint = symbol === "WBTC" ? "1" : "1000";
+      toast.info(`Minting ${amountToMint} ${symbol}...`, { description: "Please confirm in your wallet." });
+
+      // Encoding function 'mint(address,uint256)' -> selector: 0x40c10f19
+      const funcSelector = "0x40c10f19";
+      const paddedAddress = userAddress.toLowerCase().replace("0x", "").padStart(64, "0");
+      
+      let amountHex = "";
+      try {
+        const amount = BigInt(amountToMint) * (BigInt(10) ** BigInt(decimals));
+        amountHex = amount.toString(16).padStart(64, "0");
+      } catch (e) {
+        amountHex = "0".padStart(64, "0");
+      }
+
+      const dataPayload = funcSelector + paddedAddress + amountHex;
+
+      // Sending raw transaction through MetaMask
+      const txHash = await (window as any).ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: userAddress,
+          to: tokenAddress,
+          data: dataPayload
+        }]
+      });
+      
+      toast.success(`Transaction sent!`, { description: "Wait a few seconds for LitVM to confirm." });
+      
+      // Simulating a wait for the block confirmation
+      setTimeout(() => {
+        toast.success(`Successfully minted ${amountToMint} ${symbol}!`, { description: "Refresh page to see your new balance." });
+        setMinting(null);
+      }, 5000);
+      
+    } catch (err: any) {
+      console.error("Minting failed", err);
+      toast.error(`Failed to mint ${symbol}`, { description: err.shortMessage || err.message });
+      setMinting(null);
+    }
+  };
+
+  return { mint, minting };
+};
+// ==============================================================
 
 const useSwapQuote = (from: string, to: string, amount: string, slippage: number) => {
   const [loading, setLoading] = useState(false);
@@ -814,12 +871,14 @@ const Stats = () => {
 const DashboardPage = () => {
   const { isConnected, profile } = useWalletAuth();
   const addr = profile?.wallet_address ?? null;
+  const { mint, minting } = useMintToken();
 
   const Row = ({ symbol, address }: any) => {
     const token: any = TOKEN_REGISTRY.find((t) => t.symbol === symbol);
     const { balance, loading } = useTokenBalance(symbol, address);
     const num = parseFloat(balance);
     const usd = (num * (token.priceUsd ?? 0)).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    
     return (
       <div className="flex items-center justify-between p-4 rounded-xl hover:bg-secondary/40 transition-colors">
         <div className="flex items-center gap-3">
@@ -828,9 +887,20 @@ const DashboardPage = () => {
             <div className="font-medium">{token.symbol}</div><div className="text-[11px] text-muted-foreground">{token.name}</div>
           </div>
         </div>
-        <div className="text-right">
-          <div className="font-mono text-sm">{loading ? "…" : num.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
-          <div className="text-[11px] text-muted-foreground font-mono">${usd}</div>
+        <div className="flex items-center gap-4 text-right">
+          {!token.isNative && token.address && (
+            <button 
+              onClick={() => mint(token.symbol, token.address, token.decimals, address)}
+              disabled={minting === token.symbol}
+              className="px-3 py-1.5 text-[11px] font-mono text-foreground bg-secondary/80 hover:bg-primary hover:text-primary-foreground transition-colors rounded-full border border-border/50 disabled:opacity-50"
+            >
+              {minting === token.symbol ? "Minting..." : "+ Faucet"}
+            </button>
+          )}
+          <div>
+            <div className="font-mono text-sm">{loading ? "…" : num.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
+            <div className="text-[11px] text-muted-foreground font-mono">${usd}</div>
+          </div>
         </div>
       </div>
     );
@@ -881,6 +951,71 @@ export default function App() {
 
   return (
     <RouterContext.Provider value={{ route: currentRoute, navigate: setCurrentRoute }}>
+      <style>{`
+        :root {
+          --background: 0 0% 3%; --foreground: 0 0% 98%;
+          --card: 0 0% 5%; --card-foreground: 0 0% 98%;
+          --popover: 0 0% 6%; --popover-foreground: 0 0% 98%;
+          --primary: 220 10% 92%; --primary-foreground: 0 0% 4%; --primary-glow: 220 30% 80%;
+          --secondary: 0 0% 9%; --secondary-foreground: 0 0% 98%;
+          --muted: 0 0% 8%; --muted-foreground: 0 0% 55%;
+          --accent: 220 20% 75%; --accent-foreground: 0 0% 4%;
+          --silver: 220 12% 78%; --silver-foreground: 0 0% 4%;
+          --success: 145 70% 55%; --warning: 38 92% 60%;
+          --destructive: 0 75% 55%; --destructive-foreground: 0 0% 98%;
+          --border: 0 0% 12%; --input: 0 0% 10%; --ring: 220 10% 70%;
+          --radius: 1.25rem;
+          --gradient-primary: linear-gradient(135deg, hsl(0 0% 100%) 0%, hsl(220 12% 78%) 50%, hsl(220 8% 55%) 100%);
+          --gradient-silver: linear-gradient(180deg, hsl(0 0% 96%), hsl(220 12% 70%) 60%, hsl(220 10% 45%));
+          --gradient-hero: radial-gradient(ellipse 80% 50% at 50% 0%, hsl(0 0% 18% / 0.6), transparent 70%);
+          --gradient-card: linear-gradient(180deg, hsl(0 0% 7% / 0.8), hsl(0 0% 4% / 0.8));
+          --gradient-line: linear-gradient(90deg, transparent, hsl(0 0% 30%), transparent);
+          --shadow-glow: 0 0 80px hsl(220 10% 80% / 0.08);
+          --shadow-card: 0 30px 60px -30px hsl(0 0% 0% / 0.9), 0 1px 0 0 hsl(0 0% 100% / 0.04) inset;
+          --shadow-elevated: 0 40px 100px -30px hsl(0 0% 0%), 0 1px 0 0 hsl(0 0% 100% / 0.05) inset;
+          --shadow-button: 0 1px 0 0 hsl(0 0% 100% / 0.15) inset, 0 8px 24px -8px hsl(0 0% 0% / 0.6);
+          --transition-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+          --transition-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        body {
+          background-color: hsl(var(--background));
+          color: hsl(var(--foreground));
+          font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+          font-feature-settings: "ss01", "cv11";
+          letter-spacing: -0.01em;
+          background-image: radial-gradient(ellipse 100% 60% at 50% -10%, hsl(0 0% 14% / 0.5), transparent 60%), radial-gradient(ellipse 80% 40% at 50% 100%, hsl(220 15% 12% / 0.3), transparent 60%);
+          background-attachment: fixed;
+          margin: 0;
+        }
+        body::before {
+          content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 1; opacity: 0.025;
+          background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+          mix-blend-mode: overlay;
+        }
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-track { background: hsl(var(--background)); }
+        ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 8px; border: 2px solid hsl(var(--background)); }
+        ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.5); }
+        .glass { background: var(--gradient-card); box-shadow: var(--shadow-card); backdrop-filter: blur(40px); border: 1px solid hsl(var(--border)/0.8); }
+        .panel { background-color: hsl(var(--card)/0.8); backdrop-filter: blur(24px); border: 1px solid hsl(var(--border)/0.6); border-radius: 1rem; box-shadow: var(--shadow-card); }
+        .text-silver { background-clip: text; -webkit-text-fill-color: transparent; background-image: var(--gradient-silver); }
+        .btn-silver { background-image: var(--gradient-primary); color: hsl(var(--primary-foreground)); box-shadow: var(--shadow-button); transition: transform 0.2s var(--transition-spring), filter 0.2s ease; }
+        .btn-silver:hover { filter: brightness(1.08); transform: translateY(-1px); }
+        .btn-silver:active { transform: translateY(0); filter: brightness(0.96); }
+        .hairline { height: 1px; background: var(--gradient-line); }
+        .grid-pattern {
+          background-image: linear-gradient(hsl(0 0% 100% / 0.025) 1px, transparent 1px), linear-gradient(90deg, hsl(0 0% 100% / 0.025) 1px, transparent 1px);
+          background-size: 56px 56px; mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black, transparent 80%);
+        }
+        @keyframes chrome-spin { to { transform: rotate(360deg); } }
+        .chrome-ring {
+          background: conic-gradient(hsl(0 0% 30%), hsl(0 0% 95%), hsl(0 0% 30%), hsl(220 10% 80%), hsl(0 0% 30%));
+          animation: chrome-spin 6s linear infinite;
+        }
+        @keyframes fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-up { animation: fade-up 0.6s var(--transition-smooth) both; }
+      `}</style>
+      
       <Toaster theme="dark" position="bottom-right" />
       
       <div className="min-h-screen flex flex-col relative z-10 selection:bg-primary/25 selection:text-foreground">
