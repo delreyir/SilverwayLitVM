@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, createContext, useContext } from "react";
 import { 
   ArrowUpRight, Wallet, LogOut, Copy, Check, ChevronDown, 
-  Search, ArrowDown, Settings2, Loader2, Droplets, Activity, Repeat, TrendingUp, Plus, ExternalLink 
+  Search, ArrowDown, Settings2, Loader2, Droplets, Activity, 
+  Repeat, TrendingUp, Plus, Zap, ArrowRight 
 } from "lucide-react";
 import { Toaster, toast } from "sonner";
 
@@ -202,7 +203,6 @@ const Header = () => {
     setCopied(true); toast.success("Address copied"); setTimeout(() => setCopied(false), 1500);
   };
 
-  // 🔴 7YEDNA L-BRIDGE MN HNA
   const NAV = [
     { to: "/", label: "Swap" },
     { to: "/pools", label: "Pools" },
@@ -362,7 +362,6 @@ const SwapCard = () => {
   
   // Fake price impact based on trade size (e.g. > $10k = impact)
   const priceImpact = usdValue > 10000 ? ((usdValue / 1000000) * 100).toFixed(2) : "< 0.01";
-  const lpFee = (parsedAmount * 0.003).toFixed(6);
 
   const flip = () => { setFrom(to); setTo(from); setAmount(output || ""); };
 
@@ -384,22 +383,6 @@ const SwapCard = () => {
     setSwapping(true);
     try {
       toast.info(`Swapping ${amount} ${from} for ${to}...`);
-      
-      /* =========================================================
-         HNA GHADI YDAR L-CODE DIAL ROUTER L-79I9I MN B3D!
-         Example (if you had ethers.js installed and ABI ready):
-         
-         const router = new ethers.Contract(DEX_ROUTER_ADDRESS, RouterABI, signer);
-         const tx = await router.swapExactTokensForTokens(
-            ethers.parseUnits(amount, fromToken.decimals),
-            ethers.parseUnits(minReceived, toToken.decimals),
-            [fromToken.address, toToken.address],
-            addr,
-            Math.floor(Date.now() / 1000) + 60 * 20
-         );
-         await tx.wait();
-      ========================================================== */
-
       await new Promise(r => setTimeout(r, 2500)); // Mocking blockchain confirm
       toast.success("Swap Confirmed!", { description: `Received ${output} ${to}` });
       setAmount("");
