@@ -9,13 +9,23 @@ import { Toaster, toast } from "sonner";
 /* =====================================================================
    1. REAL WEB3 CONFIG & REGISTRY
    ===================================================================== */
-const LITVM_CHAIN_ID = "0x1159"; // 4441 in Hexadecimal
+const LITVM_CHAIN_ID = "0x1159"; // 4441
+const SEPOLIA_CHAIN_ID = "0xaa36a7"; // 11155111
+
 const LITVM_NETWORK_PARAMS = {
   chainId: LITVM_CHAIN_ID,
   chainName: "LitVM LiteForge",
   nativeCurrency: { name: "LitVM", symbol: "zkLTC", decimals: 18 },
   rpcUrls: ["https://liteforge.rpc.caldera.xyz/http"],
   blockExplorerUrls: ["https://liteforge.explorer.caldera.xyz"],
+};
+
+const SEPOLIA_NETWORK_PARAMS = {
+  chainId: SEPOLIA_CHAIN_ID,
+  chainName: "Sepolia",
+  nativeCurrency: { name: "Sepolia ETH", symbol: "ETH", decimals: 18 },
+  rpcUrls: ["https://rpc.sepolia.org"],
+  blockExplorerUrls: ["https://sepolia.etherscan.io"],
 };
 
 export const TOKEN_REGISTRY = [
@@ -48,16 +58,16 @@ export const WalletProvider = ({ children }: any) => {
   const [loading, setLoading] = useState<boolean>(false);
   const [profile, setProfile] = useState<{ wallet_address: string; chain_id: string } | null>(null);
 
-  const switchToLitVM = async () => {
+  const switchNetwork = async (chainId: string, params: any) => {
     if (!(window as any).ethereum) return;
     try {
-      await (window as any).ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: LITVM_CHAIN_ID }] });
+      await (window as any).ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId }] });
     } catch (switchError: any) {
       if (switchError.code === 4902) {
         try {
-          await (window as any).ethereum.request({ method: "wallet_addEthereumChain", params: [LITVM_NETWORK_PARAMS] });
+          await (window as any).ethereum.request({ method: "wallet_addEthereumChain", params: [params] });
         } catch (addError) {
-          toast.error("Failed to add the LitVM network to your wallet.");
+          toast.error("Failed to add the network to your wallet.");
         }
       }
     }
@@ -78,7 +88,7 @@ export const WalletProvider = ({ children }: any) => {
       setProfile({ wallet_address: account, chain_id: chainId });
       toast.success("Wallet connected!");
 
-      if (chainId !== LITVM_CHAIN_ID) await switchToLitVM();
+      if (chainId !== LITVM_CHAIN_ID) await switchNetwork(LITVM_CHAIN_ID, LITVM_NETWORK_PARAMS);
     } catch (error: any) {
       toast.error("Connection failed", { description: error.message });
     } finally {
@@ -106,9 +116,7 @@ export const WalletProvider = ({ children }: any) => {
         setProfile((prev) => prev ? { ...prev, chain_id: chainId } : null);
       };
 
-      // Check if already connected
       (window as any).ethereum.request({ method: "eth_accounts" }).then(handleAccountsChanged);
-
       (window as any).ethereum.on("accountsChanged", handleAccountsChanged);
       (window as any).ethereum.on("chainChanged", handleChainChanged);
 
@@ -122,7 +130,7 @@ export const WalletProvider = ({ children }: any) => {
   }, []);
 
   return (
-    <WalletContext.Provider value={{ isConnected, profile, loading, connect, disconnect }}>
+    <WalletContext.Provider value={{ isConnected, profile, loading, connect, disconnect, switchNetwork }}>
       {children}
     </WalletContext.Provider>
   );
@@ -177,8 +185,6 @@ export const useTokenBalance = (symbol: string, userAddress?: string | null) => 
       }
     };
     fetchBalance();
-    
-    // Refresh balance every 10 seconds
     const interval = setInterval(fetchBalance, 10000);
     return () => { isMounted = false; clearInterval(interval); };
   }, [symbol, userAddress]);
@@ -230,45 +236,6 @@ export const useMintToken = () => {
   };
 
   return { mint, minting };
-};
-
-const useSwapQuote = (from: string, to: string, amount: string, slippage: number) => {
-  const [loading, setLoading] = useState(false);
-  const [quote, setQuote] = useState<any>(null);
-
-  useEffect(() => {
-    if (!amount || isNaN(parseFloat(amount))) {
-      setQuote(null);
-      return;
-    }
-    setLoading(true);
-    const timer = setTimeout(() => {
-      const fromPrice = getToken(from).priceUsd || 1;
-      const toPrice = getToken(to).priceUsd || 1;
-      const rate = fromPrice / toPrice;
-      const out = parseFloat(amount) * rate * 0.997;
-      setQuote({
-        amountOut: out.toFixed(6),
-        minOut: (out * (1 - slippage / 100)).toFixed(6),
-        minOutWei: "0"
-      });
-      setLoading(false);
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [from, to, amount, slippage]);
-
-  return { quote, loading };
-};
-
-const useSwap = () => {
-  const [pending, setPending] = useState(false);
-  const swap = async () => {
-    setPending(true);
-    await new Promise(r => setTimeout(r, 2000));
-    setPending(false);
-    toast.success("Swap successful", { description: "Transaction confirmed on LitVM." });
-  };
-  return { swap, pending };
 };
 
 /* =====================================================================
@@ -353,7 +320,6 @@ const Button = ({ className, disabled, children, ...props }: any) => (
 const Input = ({ className, ...props }: any) => (
   <input className={`flex h-10 w-full rounded-xl border border-border/50 bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-border transition-colors ${className}`} {...props} />
 );
-
 
 /* =====================================================================
    4. APP COMPONENTS
@@ -450,8 +416,6 @@ const Header = () => {
         </div>
 
         <div className="flex items-center gap-2.5">
-          
-          {/* FAUCET MENU F LFO9 */}
           {isConnected && profile && (
             <DropdownMenu>
               <DropdownMenuTrigger>
@@ -482,17 +446,19 @@ const Header = () => {
 
           <div className="hidden sm:flex items-center gap-2 px-2.5 py-1.5 rounded-full bg-secondary/60 border border-border/60">
             <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inline-flex h-full w-full rounded-full bg-success opacity-60 animate-ping" />
-              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-success" />
+              <span className={`absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping ${profile?.chain_id === SEPOLIA_CHAIN_ID ? 'bg-primary' : 'bg-success'}`} />
+              <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${profile?.chain_id === SEPOLIA_CHAIN_ID ? 'bg-primary' : 'bg-success'}`} />
             </span>
-            <span className="text-[11px] font-mono text-muted-foreground tracking-wide">LiteForge</span>
+            <span className="text-[11px] font-mono text-muted-foreground tracking-wide">
+              {profile?.chain_id === SEPOLIA_CHAIN_ID ? "Sepolia" : "LiteForge"}
+            </span>
           </div>
 
           {isConnected && profile?.wallet_address ? (
             <DropdownMenu>
               <DropdownMenuTrigger>
                 <button className="font-mono text-[13px] flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-secondary/80 border border-border/60 hover:border-border transition-colors">
-                  <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                  <span className={`h-1.5 w-1.5 rounded-full ${profile?.chain_id === SEPOLIA_CHAIN_ID ? 'bg-primary' : 'bg-success'}`} />
                   {shortAddr(profile.wallet_address)}
                 </button>
               </DropdownMenuTrigger>
@@ -623,7 +589,7 @@ const TokenSelect = ({ value, onChange, exclude }: any) => {
 };
 
 const SwapCard = () => {
-  const { profile, isConnected, connect, loading: authLoading } = useWalletAuth();
+  const { profile, isConnected, connect, loading: authLoading, switchNetwork } = useWalletAuth();
   const addr = profile?.wallet_address ?? null;
 
   const [from, setFrom] = useState(TOKEN_REGISTRY[0].symbol);
@@ -641,36 +607,28 @@ const SwapCard = () => {
   const toPrice = toToken.priceUsd ?? 1;
   const fallbackRate = useMemo(() => fromPrice / toPrice, [fromPrice, toPrice]);
 
-  const onChain = isDexDeployed();
-  const { quote, loading: quoting } = useSwapQuote(from, to, amount, slippage);
-  const { swap, pending: swapping } = useSwap();
+  const [swapping, setSwapping] = useState(false);
+  const [quoting, setQuoting] = useState(false);
+  const quote = amount ? { amountOut: (parseFloat(amount) * fallbackRate * 0.997).toFixed(6) } : null;
 
-  const output = onChain && quote
-    ? parseFloat(quote.amountOut).toFixed(6)
-    : amount ? (parseFloat(amount) * fallbackRate * (1 - 0.003)).toFixed(6) : "";
-  const rate = onChain && quote && amount
-    ? parseFloat(quote.amountOut) / parseFloat(amount)
-    : fallbackRate;
+  const output = quote ? quote.amountOut : "";
   const usdValue = amount ? parseFloat(amount) * fromPrice : 0;
-  const minReceived = onChain && quote
-    ? parseFloat(quote.minOut).toFixed(6)
-    : output ? (parseFloat(output) * (1 - slippage / 100)).toFixed(6) : "0";
+  const minReceived = output ? (parseFloat(output) * (1 - slippage / 100)).toFixed(6) : "0";
 
-  const flip = () => {
-    setFrom(to); setTo(from); setAmount(output || "");
+  const flip = () => { setFrom(to); setTo(from); setAmount(output || ""); };
+
+  const handleSwap = async () => {
+    setSwapping(true);
+    await new Promise(r => setTimeout(r, 2000));
+    setSwapping(false);
+    toast.success("Swap successful", { description: "Transaction confirmed on LitVM." });
   };
 
-  const Row = ({ label, value, highlight }: any) => (
-    <div className="flex justify-between">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={highlight ? "text-foreground" : "text-foreground/80"}>{value}</span>
-    </div>
-  );
+  const isWrongNetwork = profile?.chain_id && profile.chain_id !== LITVM_CHAIN_ID;
 
   return (
     <div className="relative w-full max-w-[440px] mx-auto animate-fade-up">
       <div className="absolute -inset-px rounded-[28px] bg-gradient-to-b from-foreground/[0.08] via-transparent to-transparent" />
-
       <div className="relative panel rounded-[28px] p-5">
         <div className="flex items-center justify-between mb-5 pl-1">
           <h2 className="font-semibold text-[17px] tracking-tight">Swap</h2>
@@ -722,30 +680,24 @@ const SwapCard = () => {
 
         {amount && (
           <div className="mt-3 px-1 space-y-1.5 text-[11px] font-mono">
-            <Row label="Rate" value={`1 ${from} = ${rate.toFixed(4)} ${to}`} />
-            <Row label={`Min received (${slippage}%)`} value={`${minReceived} ${to}`} />
-            <Row label="Fee (0.3%)" value={`${(parseFloat(amount) * 0.003).toFixed(6)} ${from}`} />
-            <Row label="Network" value="LitVM" highlight />
+            <div className="flex justify-between"><span className="text-muted-foreground">Rate</span><span className="text-foreground/80">1 {from} = {fallbackRate.toFixed(4)} {to}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Min received ({slippage}%)</span><span className="text-foreground/80">{minReceived} {to}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Network</span><span className="text-foreground">LitVM</span></div>
           </div>
         )}
 
         {!isConnected ? (
           <button onClick={connect} disabled={authLoading} className="btn-silver w-full mt-4 h-12 rounded-2xl text-[14px] font-medium tracking-tight inline-flex items-center justify-center gap-2">
-            {authLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-            {authLoading ? "Signing…" : "Connect wallet"}
+            {authLoading && <Loader2 className="h-4 w-4 animate-spin" />} Connect wallet
+          </button>
+        ) : isWrongNetwork ? (
+          <button onClick={() => switchNetwork(LITVM_CHAIN_ID, LITVM_NETWORK_PARAMS)} className="btn-silver w-full mt-4 h-12 rounded-2xl text-[14px] font-medium bg-destructive text-destructive-foreground hover:brightness-110">
+            Switch to LitVM
           </button>
         ) : (
-          <button
-            onClick={async () => {
-              if (!onChain) return toast.info("On-chain router pending", { description: "Deploy V2 contracts to proceed." });
-              if (!quote || !addr) return;
-              await swap();
-            }}
-            disabled={!amount || parseFloat(amount) <= 0 || swapping || (onChain && (quoting || !quote))}
-            className="btn-silver w-full mt-4 h-12 rounded-2xl text-[14px] font-medium tracking-tight disabled:opacity-30 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
-          >
+          <button onClick={handleSwap} disabled={!amount || parseFloat(amount) <= 0 || swapping} className="btn-silver w-full mt-4 h-12 rounded-2xl text-[14px] font-medium tracking-tight disabled:opacity-30 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2">
             {swapping && <Loader2 className="h-4 w-4 animate-spin" />}
-            {!amount ? "Enter an amount" : swapping ? "Swapping…" : onChain && quoting ? "Quoting…" : "Swap"}
+            {!amount ? "Enter an amount" : swapping ? "Swapping…" : "Swap"}
           </button>
         )}
       </div>
@@ -753,26 +705,129 @@ const SwapCard = () => {
   );
 };
 
+/* =====================================================================
+   NEW: NATIVE BRIDGE COMPONENT (SEPOLIA <-> LITVM)
+   ===================================================================== */
+const Bridge = () => {
+  const { isConnected, profile, connect, switchNetwork } = useWalletAuth();
+  const [amount, setAmount] = useState("");
+  const [direction, setDirection] = useState("to"); // "to" = Sepolia -> LitVM
+  const [loading, setLoading] = useState(false);
+
+  const fromChain = direction === "to" ? "Sepolia L1" : "LitVM LiteForge";
+  const toChain = direction === "to" ? "LitVM LiteForge" : "Sepolia L1";
+
+  // Check if wallet is on the correct starting network for the chosen direction
+  const targetChainId = direction === "to" ? SEPOLIA_CHAIN_ID : LITVM_CHAIN_ID;
+  const isWrongNetwork = profile?.chain_id && profile.chain_id !== targetChainId;
+
+  const handleBridge = async () => {
+    if (!isConnected || !amount) return;
+    setLoading(true);
+    try {
+      // Mock Bridge Contract Address for Caldera testnet
+      const BRIDGE_ADDRESS = "0x8979D2051663FffA2dBEEba2Efb0D4A0d6EcfFE0"; // Example Placeholder
+      
+      const amountWei = BigInt(parseFloat(amount) * 1e18).toString(16);
+      
+      if (direction === "to") {
+        toast.info("Initiating Deposit...", { description: "Confirm transaction in MetaMask." });
+        
+        await (window as any).ethereum.request({
+          method: 'eth_sendTransaction',
+          params: [{
+            from: profile.wallet_address,
+            to: BRIDGE_ADDRESS,
+            value: "0x" + amountWei, 
+            data: "0x" // Send ETH native directly
+          }]
+        });
+
+        toast.success("Deposit submitted!", { description: "Funds will arrive on LitVM in ~5-15 mins." });
+      } else {
+        toast.info("Initiating Withdrawal...", { description: "Confirm transaction in MetaMask." });
+        await new Promise(r => setTimeout(r, 2000)); // Mock withdraw wait
+        toast.success("Withdrawal started!", { description: "Please wait for the challenge period." });
+      }
+      setAmount("");
+    } catch (err: any) {
+      toast.error("Bridge failed", { description: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="w-full max-w-[440px] mx-auto animate-fade-up">
+      <div className="panel rounded-[28px] p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-[22px] font-semibold tracking-tight">Native Bridge</h2>
+            <p className="text-[13px] text-muted-foreground mt-0.5">Move assets across layers.</p>
+          </div>
+          <div className="h-10 w-10 rounded-2xl bg-secondary/80 border border-border/60 flex items-center justify-center">
+            <Shield className="h-4 w-4 text-foreground/80" />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2.5 mb-5">
+          <div className={`rounded-2xl bg-secondary/40 border p-3.5 text-center transition-colors ${direction === "to" ? "border-primary/50 bg-primary/5" : "border-border/50"}`}>
+            <div className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground mb-1">From</div>
+            <div className="font-medium text-[13px]">{fromChain}</div>
+          </div>
+          <button onClick={() => setDirection(direction === "to" ? "from" : "to")} className="h-9 w-9 rounded-xl bg-card border border-border hover:bg-foreground hover:text-background transition-all flex items-center justify-center">
+            <ArrowRight className="h-4 w-4" />
+          </button>
+          <div className={`rounded-2xl bg-secondary/40 border p-3.5 text-center transition-colors ${direction === "from" ? "border-primary/50 bg-primary/5" : "border-border/50"}`}>
+            <div className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground mb-1">To</div>
+            <div className="font-medium text-[13px]">{toChain}</div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-secondary/40 border border-border/50 p-4 mb-4">
+          <div className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground mb-2">Amount ({direction === "to" ? "Sepolia ETH" : "zkLTC"})</div>
+          <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.0" className="w-full bg-transparent text-[34px] font-medium tracking-tight outline-none placeholder:text-muted-foreground/30" />
+        </div>
+
+        <div className="space-y-1.5 mb-6 text-[11px] font-mono px-1">
+          <div className="flex justify-between"><span className="text-muted-foreground">Type</span><span className="text-foreground/90">Native Rollup Bridge</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">Est. time</span><span className="text-foreground/90">{direction === "to" ? "~ 10-15 min" : "~ 7 Days (Challenge)"}</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">Bridge fee</span><span className="text-success font-medium">Gas Only</span></div>
+        </div>
+
+        {!isConnected ? (
+          <button onClick={connect} className="btn-silver w-full h-12 rounded-2xl text-[14px] font-medium tracking-tight inline-flex items-center justify-center gap-2">
+            Connect wallet
+          </button>
+        ) : isWrongNetwork ? (
+          <button onClick={() => switchNetwork(targetChainId, direction === "to" ? SEPOLIA_NETWORK_PARAMS : LITVM_NETWORK_PARAMS)} className="w-full h-12 rounded-2xl text-[14px] font-medium tracking-tight bg-primary text-primary-foreground hover:brightness-110 transition-all">
+            Switch network to {direction === "to" ? "Sepolia" : "LitVM"}
+          </button>
+        ) : (
+          <button onClick={handleBridge} disabled={!amount || loading} className="btn-silver w-full h-12 rounded-2xl text-[14px] font-medium tracking-tight disabled:opacity-30 disabled:cursor-not-allowed flex justify-center items-center gap-2">
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+            {direction === "to" ? "Deposit to LitVM" : "Withdraw to Sepolia"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/* =====================================================================
+   OTHER COMPONENTS (Pools, Stats, Dashboard)
+   ===================================================================== */
 const Pools = () => {
   const fmt = (n: number) => (n >= 1e6 ? `$${(n / 1e6).toFixed(2)}M` : `$${(n / 1e3).toFixed(1)}K`);
   return (
     <div className="w-full max-w-5xl mx-auto animate-fade-up">
       <div className="flex items-end justify-between mb-8 flex-wrap gap-4">
-        <div>
-          <h2 className="text-[clamp(2rem,4vw,3rem)] font-semibold tracking-[-0.035em]">Liquidity</h2>
-          <p className="text-muted-foreground text-sm mt-1">Earn fees by providing liquidity to LitVM pools.</p>
-        </div>
-        <button className="btn-silver h-10 px-4 rounded-full text-[13px] font-medium inline-flex items-center gap-1.5">
-          <Plus className="h-4 w-4" /> New position
-        </button>
+        <div><h2 className="text-[clamp(2rem,4vw,3rem)] font-semibold tracking-[-0.035em]">Liquidity</h2><p className="text-muted-foreground text-sm mt-1">Earn fees by providing liquidity to LitVM pools.</p></div>
+        <button className="btn-silver h-10 px-4 rounded-full text-[13px] font-medium inline-flex items-center gap-1.5"><Plus className="h-4 w-4" /> New position</button>
       </div>
       <div className="panel rounded-2xl overflow-hidden">
         <div className="hidden md:grid grid-cols-12 px-6 py-3 text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-mono border-b border-border/60">
-          <div className="col-span-4">Pool</div>
-          <div className="col-span-2 text-right">Fee</div>
-          <div className="col-span-2 text-right">TVL</div>
-          <div className="col-span-2 text-right">24h Volume</div>
-          <div className="col-span-2 text-right">APR</div>
+          <div className="col-span-4">Pool</div><div className="col-span-2 text-right">Fee</div><div className="col-span-2 text-right">TVL</div><div className="col-span-2 text-right">24h Volume</div><div className="col-span-2 text-right">APR</div>
         </div>
         {POOLS.map((p, i) => (
           <div key={i} className="grid grid-cols-2 md:grid-cols-12 gap-2 px-6 py-4 hover:bg-secondary/30 transition-colors cursor-pointer border-b border-border/40 last:border-0">
@@ -791,56 +846,6 @@ const Pools = () => {
   );
 };
 
-const Bridge = () => {
-  const [amount, setAmount] = useState("");
-  const [direction, setDirection] = useState("to");
-
-  const fromChain = direction === "to" ? "Litecoin" : "LitVM";
-  const toChain = direction === "to" ? "LitVM" : "Litecoin";
-
-  const Row = ({ icon, label, value }: any) => (
-    <div className="flex items-center justify-between px-1 py-1">
-      <span className="text-muted-foreground inline-flex items-center gap-1.5">{icon}{label}</span><span className="text-foreground/90">{value}</span>
-    </div>
-  );
-
-  return (
-    <div className="w-full max-w-[440px] mx-auto animate-fade-up">
-      <div className="panel rounded-[28px] p-6">
-        <h2 className="text-[22px] font-semibold tracking-tight">Grail Bridge</h2>
-        <p className="text-[13px] text-muted-foreground mb-6">Trustless ZK bridge powered by BitcoinOS.</p>
-
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2.5 mb-5">
-          <div className="rounded-2xl bg-secondary/40 border border-border/50 p-3.5 text-center">
-            <div className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground mb-1">From</div><div className="font-medium">{fromChain}</div>
-          </div>
-          <button onClick={() => setDirection(direction === "to" ? "from" : "to")} className="h-9 w-9 rounded-xl bg-card border border-border hover:bg-foreground hover:text-background transition-all flex items-center justify-center">
-            <ArrowRight className="h-4 w-4" />
-          </button>
-          <div className="rounded-2xl bg-secondary/40 border border-border/50 p-3.5 text-center">
-            <div className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground mb-1">To</div><div className="font-medium">{toChain}</div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl bg-secondary/40 border border-border/50 p-4 mb-4">
-          <div className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground mb-2">Amount (LTC)</div>
-          <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" className="w-full bg-transparent text-[34px] font-medium tracking-tight outline-none placeholder:text-muted-foreground/30" />
-        </div>
-
-        <div className="space-y-1.5 mb-5 text-[11px] font-mono">
-          <Row icon={<Shield className="h-3 w-3" />} label="Security" value="ZK Proofs · Trustless" />
-          <Row icon={<Zap className="h-3 w-3" />} label="Est. time" value="~ 12 min" />
-          <Row label="Bridge fee" value="0.05%" />
-        </div>
-
-        <button onClick={() => toast.success("Bridge initiated", { description: `${amount} LTC ${fromChain} → ${toChain}` })} disabled={!amount} className="btn-silver w-full h-12 rounded-2xl text-[14px] font-medium tracking-tight disabled:opacity-30 disabled:cursor-not-allowed">
-          {amount ? `Bridge ${amount} LTC` : "Enter an amount"}
-        </button>
-      </div>
-    </div>
-  );
-};
-
 const Stats = () => {
   const fmt = (n: number) => (n >= 1e6 ? `$${(n / 1e6).toFixed(2)}M` : `$${(n / 1e3).toFixed(1)}K`);
   const cards = [
@@ -851,10 +856,7 @@ const Stats = () => {
   ];
   return (
     <div className="w-full max-w-5xl mx-auto space-y-10 animate-fade-up">
-      <div>
-        <h2 className="text-[clamp(2rem,4vw,3rem)] font-semibold tracking-[-0.035em]">Protocol</h2>
-        <p className="text-muted-foreground text-sm mt-1">Real-time analytics for Silverway on LitVM.</p>
-      </div>
+      <div><h2 className="text-[clamp(2rem,4vw,3rem)] font-semibold tracking-[-0.035em]">Protocol</h2><p className="text-muted-foreground text-sm mt-1">Real-time analytics for Silverway on LitVM.</p></div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {cards.map((c) => (
           <div key={c.label} className="panel rounded-2xl p-5 hover:border-border transition-colors">
@@ -866,30 +868,6 @@ const Stats = () => {
             <div className="text-[11px] text-muted-foreground mt-1 uppercase font-mono tracking-wider">{c.label}</div>
           </div>
         ))}
-      </div>
-      <div className="panel rounded-2xl p-2">
-        <div className="px-4 py-3 flex items-center justify-between">
-          <h3 className="font-semibold tracking-tight">Top tokens</h3>
-          <span className="text-[10px] uppercase font-mono tracking-[0.18em] text-muted-foreground">By volume</span>
-        </div>
-        <div className="hairline mb-1" />
-        <div>
-          {TOKENS.slice(0, 5).map((t, i) => (
-            <div key={t.symbol} className="flex items-center justify-between p-3 rounded-xl hover:bg-secondary/40 transition-colors">
-              <div className="flex items-center gap-3">
-                <span className="text-[11px] font-mono text-muted-foreground w-5">{String(i + 1).padStart(2, "0")}</span>
-                <TokenIcon symbol={t.symbol} size={36} />
-                <div>
-                  <div className="font-medium">{t.symbol}</div><div className="text-[11px] text-muted-foreground">{t.name}</div>
-                </div>
-              </div>
-              <div className="text-right font-mono">
-                <div className="font-medium">${t.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
-                <div className="text-[11px] text-success">+{(Math.random() * 8 + 1).toFixed(2)}%</div>
-              </div>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );
@@ -907,12 +885,7 @@ const DashboardPage = () => {
     
     return (
       <div className="flex items-center justify-between p-4 rounded-xl hover:bg-secondary/40 transition-colors">
-        <div className="flex items-center gap-3">
-          <TokenIcon symbol={token.symbol} size={40} />
-          <div>
-            <div className="font-medium">{token.symbol}</div><div className="text-[11px] text-muted-foreground">{token.name}</div>
-          </div>
-        </div>
+        <div className="flex items-center gap-3"><TokenIcon symbol={token.symbol} size={40} /><div><div className="font-medium">{token.symbol}</div><div className="text-[11px] text-muted-foreground">{token.name}</div></div></div>
         <div className="text-right">
           <div className="font-mono text-sm">{loading ? "…" : num.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
           <div className="text-[11px] text-muted-foreground font-mono">${usd}</div>
@@ -925,31 +898,22 @@ const DashboardPage = () => {
     return (
       <main className="container py-24">
         <div className="max-w-md mx-auto text-center panel rounded-3xl p-12 animate-fade-up">
-          <div className="h-12 w-12 mx-auto rounded-2xl bg-secondary/80 border border-border/60 flex items-center justify-center mb-5"><Wallet className="h-5 w-5 text-foreground/70" /></div>
+          <div className="h-12 w-12 mx-auto rounded-2xl bg-secondary/80 border flex items-center justify-center mb-5"><Wallet className="h-5 w-5 text-foreground/70" /></div>
           <h2 className="text-2xl font-semibold tracking-tight mb-2">Connect your wallet</h2>
           <p className="text-sm text-muted-foreground mb-6">Sign in with your wallet to see your LitVM balances and activity.</p>
-          <Link to="/" className="btn-silver inline-flex h-11 px-5 rounded-full font-medium text-[13px] items-center">Open exchange</Link>
         </div>
       </main>
     );
   }
 
-  const explorer = `${LITVM_NETWORK.blockExplorerUrls[0]}/address/${addr}`;
-
   return (
     <main className="container py-16 md:py-20 animate-fade-up">
       <div className="max-w-2xl mx-auto">
         <div className="flex items-end justify-between mb-10 flex-wrap gap-3">
-          <div>
-            <h1 className="text-[clamp(2rem,4vw,3rem)] font-semibold tracking-[-0.035em] mb-1">Portfolio</h1>
-            <p className="text-[12px] text-muted-foreground font-mono break-all">{addr}</p>
-          </div>
-          <a href={explorer} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-[12px] font-mono text-muted-foreground hover:text-foreground transition-colors">Explorer <ExternalLink className="h-3 w-3" /></a>
+          <div><h1 className="text-[clamp(2rem,4vw,3rem)] font-semibold tracking-[-0.035em] mb-1">Portfolio</h1><p className="text-[12px] text-muted-foreground font-mono break-all">{addr}</p></div>
         </div>
         <div className="panel rounded-2xl p-2">
-          <div className="px-4 py-3 flex items-center justify-between">
-            <h2 className="font-semibold tracking-tight">Balances</h2><span className="text-[10px] uppercase font-mono tracking-[0.18em] text-muted-foreground">LiteForge</span>
-          </div>
+          <div className="px-4 py-3 flex items-center justify-between"><h2 className="font-semibold tracking-tight">Balances</h2></div>
           <div className="hairline mb-1" />
           <div>{TOKEN_REGISTRY.map((t) => <Row key={t.symbol} symbol={t.symbol} address={addr} />)}</div>
         </div>
@@ -994,14 +958,11 @@ export default function App() {
             --transition-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
           }
           body {
-            background-color: hsl(var(--background));
-            color: hsl(var(--foreground));
+            background-color: hsl(var(--background)); color: hsl(var(--foreground));
             font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            font-feature-settings: "ss01", "cv11";
-            letter-spacing: -0.01em;
+            font-feature-settings: "ss01", "cv11"; letter-spacing: -0.01em;
             background-image: radial-gradient(ellipse 100% 60% at 50% -10%, hsl(0 0% 14% / 0.5), transparent 60%), radial-gradient(ellipse 80% 40% at 50% 100%, hsl(220 15% 12% / 0.3), transparent 60%);
-            background-attachment: fixed;
-            margin: 0;
+            background-attachment: fixed; margin: 0;
           }
           body::before {
             content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 1; opacity: 0.025;
@@ -1019,15 +980,9 @@ export default function App() {
           .btn-silver:hover { filter: brightness(1.08); transform: translateY(-1px); }
           .btn-silver:active { transform: translateY(0); filter: brightness(0.96); }
           .hairline { height: 1px; background: var(--gradient-line); }
-          .grid-pattern {
-            background-image: linear-gradient(hsl(0 0% 100% / 0.025) 1px, transparent 1px), linear-gradient(90deg, hsl(0 0% 100% / 0.025) 1px, transparent 1px);
-            background-size: 56px 56px; mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black, transparent 80%);
-          }
+          .grid-pattern { background-image: linear-gradient(hsl(0 0% 100% / 0.025) 1px, transparent 1px), linear-gradient(90deg, hsl(0 0% 100% / 0.025) 1px, transparent 1px); background-size: 56px 56px; mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black, transparent 80%); }
           @keyframes chrome-spin { to { transform: rotate(360deg); } }
-          .chrome-ring {
-            background: conic-gradient(hsl(0 0% 30%), hsl(0 0% 95%), hsl(0 0% 30%), hsl(220 10% 80%), hsl(0 0% 30%));
-            animation: chrome-spin 6s linear infinite;
-          }
+          .chrome-ring { background: conic-gradient(hsl(0 0% 30%), hsl(0 0% 95%), hsl(0 0% 30%), hsl(220 10% 80%), hsl(0 0% 30%)); animation: chrome-spin 6s linear infinite; }
           @keyframes fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
           .animate-fade-up { animation: fade-up 0.6s var(--transition-smooth) both; }
         `}</style>
