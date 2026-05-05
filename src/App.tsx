@@ -19,7 +19,7 @@ const LITVM_NETWORK_PARAMS = {
 };
 
 // ⚠️ Hada l-adresse dial Router mo2a9at bach t9bel lik MetaMask transaction
-const DEX_ROUTER_ADDRESS = "0x1111111111111111111111111111111111111111"; 
+const DEX_ROUTER_ADDRESS = "0xf74FafBE9a6D029fdc1aEba46C0f4Ab069C25F32"; 
 
 export const TOKEN_REGISTRY = [
   { symbol: "zkLTC", name: "Native zkLTC", priceUsd: 85.50, icon: "Ł", isNative: true, decimals: 18 },
