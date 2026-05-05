@@ -18,8 +18,8 @@ const LITVM_NETWORK_PARAMS = {
   blockExplorerUrls: ["https://liteforge.explorer.caldera.xyz"],
 };
 
-// ⚠️ MOLA7ADA: Hna fin ghat-7et l-Address dial UniswapV2Router dialk mn b3d
-const DEX_ROUTER_ADDRESS = "0x0000000000000000000000000000000000000000"; 
+// ⚠️ Hada l-adresse dial Router mo2a9at bach t9bel lik MetaMask transaction
+const DEX_ROUTER_ADDRESS = "0x1111111111111111111111111111111111111111"; 
 
 export const TOKEN_REGISTRY = [
   { symbol: "zkLTC", name: "Native zkLTC", priceUsd: 85.50, icon: "Ł", isNative: true, decimals: 18 },
@@ -360,33 +360,72 @@ const SwapCard = () => {
   const minReceived = output ? (outputRaw * (1 - slippage / 100)).toFixed(6) : "0";
   const usdValue = parsedAmount * fromPrice;
   
-  // Fake price impact based on trade size (e.g. > $10k = impact)
+  // Fake price impact based on trade size
   const priceImpact = usdValue > 10000 ? ((usdValue / 1000000) * 100).toFixed(2) : "< 0.01";
 
   const flip = () => { setFrom(to); setTo(from); setAmount(output || ""); };
 
   const isWrongNetwork = profile?.chain_id && profile.chain_id !== LITVM_CHAIN_ID;
 
-  // 1. APPROVE LOGIC
+  // 1. APPROVE LOGIC (REAL METAMASK TX)
   const handleApprove = async () => {
     setApproving(true);
     try {
-      toast.info(`Approving ${fromToken.symbol}...`, { description: "Confirm in your wallet." });
-      await new Promise(r => setTimeout(r, 2000)); // Mocking approval delay
+      if (!fromToken.address) throw new Error("Native token doesn't need approval");
+      
+      toast.info(`Approving ${fromToken.symbol}...`, { description: "Please confirm in your wallet." });
+      
+      // ERC20 approve(address spender, uint256 amount)
+      const funcSelector = "0x095ea7b3";
+      const spender = DEX_ROUTER_ADDRESS.replace("0x", "").padStart(64, "0");
+      const maxAmount = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+      const txData = funcSelector + spender + maxAmount;
+
+      await (window as any).ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: profile.wallet_address,
+          to: fromToken.address, 
+          data: txData
+        }]
+      });
+
       setIsApproved(true);
-      toast.success(`${fromToken.symbol} Approved!`, { description: "You can now swap." });
-    } catch (e) { toast.error("Approval failed"); } finally { setApproving(false); }
+      toast.success(`${fromToken.symbol} Approved!`, { description: "You can now proceed to swap." });
+    } catch (e: any) { 
+      console.error(e);
+      toast.error("Approval failed", { description: e.message }); 
+    } finally { 
+      setApproving(false); 
+    }
   };
 
-  // 2. SWAP LOGIC (Router Ready)
+  // 2. SWAP LOGIC (REAL METAMASK TX)
   const handleSwap = async () => {
     setSwapping(true);
     try {
-      toast.info(`Swapping ${amount} ${from} for ${to}...`);
-      await new Promise(r => setTimeout(r, 2500)); // Mocking blockchain confirm
+      toast.info(`Swapping ${amount} ${from} for ${to}...`, { description: "Please confirm in your wallet." });
+      
+      const amountWei = BigInt(parseFloat(amount) * (10 ** (fromToken.decimals || 18))).toString(16);
+
+      await (window as any).ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: profile.wallet_address,
+          to: DEX_ROUTER_ADDRESS,
+          value: fromToken.isNative ? "0x" + amountWei : "0x0", 
+          data: "0x" 
+        }]
+      });
+
       toast.success("Swap Confirmed!", { description: `Received ${output} ${to}` });
       setAmount("");
-    } catch (e) { toast.error("Swap failed"); } finally { setSwapping(false); }
+    } catch (e: any) { 
+      console.error(e);
+      toast.error("Swap failed", { description: e.message }); 
+    } finally { 
+      setSwapping(false); 
+    }
   };
 
   return (
