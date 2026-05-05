@@ -719,43 +719,53 @@ const Bridge = () => {
   const toChain = direction === "to" ? "LitVM LiteForge" : "Sepolia L1";
   const tokenSymbol = direction === "to" ? "Sepolia ETH" : "zkLTC";
 
-  // Check network to force switch before bridging
   const targetChainId = direction === "to" ? SEPOLIA_CHAIN_ID : LITVM_CHAIN_ID;
   const targetNetworkParams = direction === "to" ? SEPOLIA_NETWORK_PARAMS : LITVM_NETWORK_PARAMS;
   const isWrongNetwork = profile?.chain_id && profile.chain_id !== targetChainId;
 
-  // Fetch accurate balance from the source network RPC directly
+  // Hna beddelna l-logic bach njbdo l-balance directement mn l-Wallet (Rabby) bla API khrin
   useEffect(() => {
     if (!profile?.wallet_address) {
       setSourceBalance("0.0000");
       return;
     }
+    
+    let isMounted = true;
     const fetchBridgeBalance = async () => {
-      const rpcUrl = direction === "to" ? "https://rpc.sepolia.org" : "https://liteforge.rpc.caldera.xyz/http";
       try {
-        const res = await fetch(rpcUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jsonrpc: "2.0", method: "eth_getBalance", params: [profile.wallet_address, "latest"], id: 1 })
-        });
-        const data = await res.json();
-        if (data.result) {
-          const val = Number(BigInt(data.result)) / 1e18;
-          setSourceBalance(val.toFixed(4));
+        // Ila l-wallet f r-reseau s7i7, n9raw l-balance mno directement
+        if (!isWrongNetwork && (window as any).ethereum) {
+          const hex = await (window as any).ethereum.request({
+            method: 'eth_getBalance',
+            params: [profile.wallet_address, 'latest']
+          });
+          if (isMounted) setSourceBalance((Number(BigInt(hex)) / 1e18).toFixed(4));
+        } else {
+          // Ila mazal maswitcha, nsta3mlo RPC public khor n9iy chwiya (publicnode)
+          const rpcUrl = direction === "to" ? "https://ethereum-sepolia-rpc.publicnode.com" : "https://liteforge.rpc.caldera.xyz/http";
+          const res = await fetch(rpcUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jsonrpc: "2.0", method: "eth_getBalance", params: [profile.wallet_address, "latest"], id: 1 })
+          });
+          const data = await res.json();
+          if (data.result && isMounted) {
+            setSourceBalance((Number(BigInt(data.result)) / 1e18).toFixed(4));
+          }
         }
       } catch (e) {
-        console.error("Failed to fetch bridge balance", e);
+        console.error("Balance fetch error:", e);
       }
     };
     
     fetchBridgeBalance();
-    const interval = setInterval(fetchBridgeBalance, 10000); // Auto-refresh every 10s
-    return () => clearInterval(interval);
-  }, [profile?.wallet_address, direction]);
+    const interval = setInterval(fetchBridgeBalance, 5000); 
+    return () => { isMounted = false; clearInterval(interval); };
+  }, [profile?.wallet_address, direction, isWrongNetwork]);
 
   const handleMax = () => {
     if (parseFloat(sourceBalance) > 0) {
-      // Leave 0.005 for gas if sending from Sepolia
+      // Kan-kheliw 0.005 f l-balance dial Sepolia 3la wed l-gas dial transaction
       const maxVal = direction === "to" ? Math.max(0, parseFloat(sourceBalance) - 0.005) : parseFloat(sourceBalance);
       setAmount(maxVal.toFixed(4));
     }
@@ -765,12 +775,12 @@ const Bridge = () => {
     if (!isConnected || !amount || isWrongNetwork) return;
     setLoading(true);
     try {
-      // Mock Bridge Contract Address for Caldera testnet
+      // L-adresse dial l-Bridge Contract lli dertiha f l-L1
       const BRIDGE_ADDRESS = "0x8979D2051663FffA2dBEEba2Efb0D4A0d6EcfFE0"; 
       const amountWei = BigInt(parseFloat(amount) * 1e18).toString(16);
       
       if (direction === "to") {
-        toast.info("Initiating Deposit...", { description: "Confirm transaction in MetaMask." });
+        toast.info("Initiating Deposit...", { description: "Confirm transaction in your wallet." });
         
         await (window as any).ethereum.request({
           method: 'eth_sendTransaction',
@@ -778,17 +788,15 @@ const Bridge = () => {
             from: profile.wallet_address,
             to: BRIDGE_ADDRESS,
             value: "0x" + amountWei, 
-            data: "0x" // Send ETH native directly to the bridge contract
+            data: "0x"
           }]
         });
 
         toast.success("Deposit submitted!", { description: "Funds will arrive on LitVM in ~5-15 mins." });
+        setAmount("");
       } else {
-        toast.info("Initiating Withdrawal...", { description: "Confirm transaction in MetaMask." });
-        await new Promise(r => setTimeout(r, 2000)); // Mock withdraw wait
-        toast.success("Withdrawal started!", { description: "Please wait for the challenge period." });
+        toast.info("Withdrawals require challenge period.", { description: "You are initiating a standard withdrawal." });
       }
-      setAmount("");
     } catch (err: any) {
       toast.error("Bridge failed", { description: err.message });
     } finally {
@@ -823,7 +831,6 @@ const Bridge = () => {
           </div>
         </div>
 
-        {/* Amount Input with Live Balance */}
         <div className="rounded-2xl bg-secondary/40 border border-border/50 p-4 mb-4 transition-colors hover:bg-secondary/60">
           <div className="flex justify-between text-[11px] text-muted-foreground mb-2 font-mono uppercase tracking-wider">
             <span>Amount ({tokenSymbol})</span>
