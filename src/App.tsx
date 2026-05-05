@@ -706,74 +706,75 @@ const SwapCard = () => {
 };
 
 /* =====================================================================
-   NEW: NATIVE BRIDGE COMPONENT (SEPOLIA <-> LITVM)
+   NEW: NATIVE BRIDGE COMPONENT (USDC: SEPOLIA <-> LITVM)
    ===================================================================== */
 const Bridge = () => {
   const { isConnected, profile, connect, switchNetwork } = useWalletAuth();
   const [amount, setAmount] = useState("");
   const [direction, setDirection] = useState("to"); // "to" = Sepolia -> LitVM
   const [loading, setLoading] = useState(false);
-  const [sourceBalance, setSourceBalance] = useState("0.0000");
+  const [sourceBalance, setSourceBalance] = useState("0.00");
 
   const fromChain = direction === "to" ? "Sepolia L1" : "LitVM LiteForge";
   const toChain = direction === "to" ? "LitVM LiteForge" : "Sepolia L1";
-  const tokenSymbol = direction === "to" ? "Sepolia ETH" : "zkLTC";
+  const tokenSymbol = "USDC";
 
+  // Address dial USDC f LitVM w Sepolia
+  const USDC_L2 = "0x6fefE517cAe9924EE3eFbd9423Fd707d55ED3bcA";
+  const USDC_L1 = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"; // Mock Sepolia USDC
+
+  // Fix dial Rabby Chain ID: kan-7ewlo kolchi l-Hex bach y-t9arn s7i7
+  let currentChainHex = "";
+  if (profile?.chain_id) {
+     try { currentChainHex = "0x" + BigInt(profile.chain_id).toString(16); } catch(e) {}
+  }
   const targetChainId = direction === "to" ? SEPOLIA_CHAIN_ID : LITVM_CHAIN_ID;
   const targetNetworkParams = direction === "to" ? SEPOLIA_NETWORK_PARAMS : LITVM_NETWORK_PARAMS;
-  const isWrongNetwork = profile?.chain_id && profile.chain_id !== targetChainId;
+  const isWrongNetwork = currentChainHex && currentChainHex !== targetChainId;
 
+  // Jbed l-Balance dial USDC b sse7 mn RPC
   useEffect(() => {
     if (!profile?.wallet_address) {
-      setSourceBalance("0.0000");
+      setSourceBalance("0.00");
       return;
     }
 
     let isMounted = true;
-    const fetchBridgeBalance = async () => {
-      // Lista dial RPCs s7a7 bach ntfiw mochkil dial CORS
-      const rpcs = direction === "to" 
-        ? ["https://rpc2.sepolia.org", "https://gateway.tenderly.co/public/sepolia", "https://ethereum-sepolia-rpc.publicnode.com"]
-        : ["https://liteforge.rpc.caldera.xyz/http"];
+    const fetchUSDCBalance = async () => {
+      try {
+        const rpcUrl = direction === "to" ? "https://ethereum-sepolia-rpc.publicnode.com" : "https://liteforge.rpc.caldera.xyz/http";
+        const usdcAddr = direction === "to" ? USDC_L1 : USDC_L2;
+        
+        // Data payload bach n-3eyto l fonction `balanceOf(address)` f USDC Contract
+        const dataPayload = "0x70a08231000000000000000000000000" + profile.wallet_address.toLowerCase().replace("0x", "");
 
-      let fetched = false;
-      for (let rpc of rpcs) {
-        try {
-          const res = await fetch(rpc, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ jsonrpc: "2.0", method: "eth_getBalance", params: [profile.wallet_address, "latest"], id: 1 })
-          });
-          const data = await res.json();
-          if (data.result !== undefined && isMounted) {
-            setSourceBalance((Number(BigInt(data.result)) / 1e18).toFixed(4));
-            fetched = true;
-            break; // Ila jbdo mn rpc lawel, y7bess
-          }
-        } catch (e) {
-          console.warn(`RPC ${rpc} failed, trying next...`);
+        const res = await fetch(rpcUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", method: "eth_call", params: [{ to: usdcAddr, data: dataPayload }, "latest"], id: 1 })
+        });
+        const d = await res.json();
+        
+        if (d.result && d.result !== "0x" && isMounted) {
+          // USDC kay-khdem b 6 decimals
+          const val = Number(BigInt(d.result)) / 1e6;
+          setSourceBalance(val.toFixed(2));
+        } else if (isMounted) {
+          setSourceBalance("0.00");
         }
-      }
-      
-      // Fallback l-wallet ila rpcs kamlin tblocaw (w ykon l-network s7i7)
-      if (!fetched && isMounted && !isWrongNetwork && (window as any).ethereum) {
-         try {
-            const hex = await (window as any).ethereum.request({ method: 'eth_getBalance', params: [profile.wallet_address, 'latest'] });
-            setSourceBalance((Number(BigInt(hex)) / 1e18).toFixed(4));
-         } catch(e) {}
+      } catch (e) {
+        console.warn("Failed to fetch USDC balance", e);
       }
     };
 
-    fetchBridgeBalance();
-    const interval = setInterval(fetchBridgeBalance, 10000);
+    fetchUSDCBalance();
+    const interval = setInterval(fetchUSDCBalance, 5000);
     return () => { isMounted = false; clearInterval(interval); };
-  }, [profile?.wallet_address, direction, isWrongNetwork]);
+  }, [profile?.wallet_address, direction]);
 
   const handleMax = () => {
     if (parseFloat(sourceBalance) > 0) {
-      // Khalina 0.005 f l-balance dial Sepolia 3la wed l-gas dial transaction
-      const maxVal = direction === "to" ? Math.max(0, parseFloat(sourceBalance) - 0.005) : parseFloat(sourceBalance);
-      setAmount(maxVal.toFixed(4));
+      setAmount(sourceBalance); // F USDC makn-7iydoch l-gas 7it l-gas kaytkhlss b ETH/zkLTC
     }
   };
 
@@ -781,24 +782,32 @@ const Bridge = () => {
     if (!isConnected || !amount || isWrongNetwork) return;
     setLoading(true);
     try {
-      // Caldera Native Bridge L1 Address
       const BRIDGE_ADDRESS = "0x8979D2051663FffA2dBEEba2Efb0D4A0d6EcfFE0"; 
-      const amountWei = BigInt(parseFloat(amount) * 1e18).toString(16);
+      const usdcAddress = direction === "to" ? USDC_L1 : USDC_L2;
       
+      // USDC b 6 decimals
+      const amountUnits = BigInt(parseFloat(amount) * 1e6).toString(16);
+      
+      // N-saybo Transaction ERC20 `transfer(to, amount)`
+      const funcSelector = "0xa9059cbb"; // ERC20 transfer()
+      const paddedBridge = BRIDGE_ADDRESS.toLowerCase().replace("0x", "").padStart(64, "0");
+      const paddedAmount = amountUnits.padStart(64, "0");
+      const txData = funcSelector + paddedBridge + paddedAmount;
+
       if (direction === "to") {
-        toast.info("Initiating Deposit...", { description: "Confirm transaction in your wallet." });
+        toast.info("Initiating Deposit...", { description: "Confirm USDC transfer in your wallet." });
         
         await (window as any).ethereum.request({
           method: 'eth_sendTransaction',
           params: [{
             from: profile.wallet_address,
-            to: BRIDGE_ADDRESS,
-            value: "0x" + amountWei, 
-            data: "0x" // Send ETH native directly
+            to: usdcAddress, // Kantsifto l USDC Contract bach y-dir transfert l-Bridge
+            value: "0x0",
+            data: txData 
           }]
         });
 
-        toast.success("Deposit submitted!", { description: "Funds will arrive on LitVM in ~5-15 mins." });
+        toast.success("Deposit submitted!", { description: "USDC will arrive on LitVM in ~5-15 mins." });
         setAmount("");
       } else {
         toast.info("Withdrawals require challenge period.", { description: "You are initiating a standard withdrawal." });
@@ -844,13 +853,16 @@ const Bridge = () => {
               {sourceBalance} <span className="text-foreground font-semibold">MAX</span>
             </button>
           </div>
-          <input 
-            type="number" 
-            value={amount} 
-            onChange={(e) => setAmount(e.target.value)} 
-            placeholder="0.0" 
-            className="w-full bg-transparent text-[34px] font-medium tracking-tight outline-none placeholder:text-muted-foreground/30" 
-          />
+          <div className="flex items-center gap-2">
+            <input 
+              type="number" 
+              value={amount} 
+              onChange={(e) => setAmount(e.target.value)} 
+              placeholder="0.0" 
+              className="w-full bg-transparent text-[34px] font-medium tracking-tight outline-none placeholder:text-muted-foreground/30" 
+            />
+            <TokenIcon symbol="USDC" size={32} />
+          </div>
         </div>
 
         <div className="space-y-1.5 mb-6 text-[11px] font-mono px-1">
@@ -868,7 +880,7 @@ const Bridge = () => {
             onClick={() => switchNetwork(targetChainId, targetNetworkParams)} 
             className="w-full h-12 rounded-2xl text-[14px] font-medium tracking-tight bg-primary text-primary-foreground hover:brightness-110 transition-all shadow-[var(--shadow-glow)]"
           >
-            Switch network to {direction === "to" ? "Sepolia L1" : "LitVM LiteForge"}
+            Switch to {direction === "to" ? "Sepolia L1" : "LitVM LiteForge"}
           </button>
         ) : (
           <button 
@@ -877,7 +889,7 @@ const Bridge = () => {
             className="btn-silver w-full h-12 rounded-2xl text-[14px] font-medium tracking-tight disabled:opacity-30 disabled:cursor-not-allowed flex justify-center items-center gap-2"
           >
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-            {!amount ? "Enter an amount" : direction === "to" ? "Deposit to LitVM" : "Withdraw to Sepolia"}
+            {!amount ? "Enter an amount" : direction === "to" ? "Deposit USDC to LitVM" : "Withdraw USDC to Sepolia"}
           </button>
         )}
       </div>
