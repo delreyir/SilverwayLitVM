@@ -713,21 +713,60 @@ const Bridge = () => {
   const [amount, setAmount] = useState("");
   const [direction, setDirection] = useState("to"); // "to" = Sepolia -> LitVM
   const [loading, setLoading] = useState(false);
+  const [sourceBalance, setSourceBalance] = useState("0.0000");
 
   const fromChain = direction === "to" ? "Sepolia L1" : "LitVM LiteForge";
   const toChain = direction === "to" ? "LitVM LiteForge" : "Sepolia L1";
+  const tokenSymbol = direction === "to" ? "Sepolia ETH" : "zkLTC";
 
-  // Check if wallet is on the correct starting network for the chosen direction
+  // Check network to force switch before bridging
   const targetChainId = direction === "to" ? SEPOLIA_CHAIN_ID : LITVM_CHAIN_ID;
+  const targetNetworkParams = direction === "to" ? SEPOLIA_NETWORK_PARAMS : LITVM_NETWORK_PARAMS;
   const isWrongNetwork = profile?.chain_id && profile.chain_id !== targetChainId;
 
+  // Fetch accurate balance from the source network RPC directly
+  useEffect(() => {
+    if (!profile?.wallet_address) {
+      setSourceBalance("0.0000");
+      return;
+    }
+    const fetchBridgeBalance = async () => {
+      const rpcUrl = direction === "to" ? "https://rpc.sepolia.org" : "https://liteforge.rpc.caldera.xyz/http";
+      try {
+        const res = await fetch(rpcUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", method: "eth_getBalance", params: [profile.wallet_address, "latest"], id: 1 })
+        });
+        const data = await res.json();
+        if (data.result) {
+          const val = Number(BigInt(data.result)) / 1e18;
+          setSourceBalance(val.toFixed(4));
+        }
+      } catch (e) {
+        console.error("Failed to fetch bridge balance", e);
+      }
+    };
+    
+    fetchBridgeBalance();
+    const interval = setInterval(fetchBridgeBalance, 10000); // Auto-refresh every 10s
+    return () => clearInterval(interval);
+  }, [profile?.wallet_address, direction]);
+
+  const handleMax = () => {
+    if (parseFloat(sourceBalance) > 0) {
+      // Leave 0.005 for gas if sending from Sepolia
+      const maxVal = direction === "to" ? Math.max(0, parseFloat(sourceBalance) - 0.005) : parseFloat(sourceBalance);
+      setAmount(maxVal.toFixed(4));
+    }
+  };
+
   const handleBridge = async () => {
-    if (!isConnected || !amount) return;
+    if (!isConnected || !amount || isWrongNetwork) return;
     setLoading(true);
     try {
       // Mock Bridge Contract Address for Caldera testnet
-      const BRIDGE_ADDRESS = "0x8979D2051663FffA2dBEEba2Efb0D4A0d6EcfFE0"; // Example Placeholder
-      
+      const BRIDGE_ADDRESS = "0x8979D2051663FffA2dBEEba2Efb0D4A0d6EcfFE0"; 
       const amountWei = BigInt(parseFloat(amount) * 1e18).toString(16);
       
       if (direction === "to") {
@@ -739,7 +778,7 @@ const Bridge = () => {
             from: profile.wallet_address,
             to: BRIDGE_ADDRESS,
             value: "0x" + amountWei, 
-            data: "0x" // Send ETH native directly
+            data: "0x" // Send ETH native directly to the bridge contract
           }]
         });
 
@@ -784,9 +823,21 @@ const Bridge = () => {
           </div>
         </div>
 
-        <div className="rounded-2xl bg-secondary/40 border border-border/50 p-4 mb-4">
-          <div className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground mb-2">Amount ({direction === "to" ? "Sepolia ETH" : "zkLTC"})</div>
-          <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.0" className="w-full bg-transparent text-[34px] font-medium tracking-tight outline-none placeholder:text-muted-foreground/30" />
+        {/* Amount Input with Live Balance */}
+        <div className="rounded-2xl bg-secondary/40 border border-border/50 p-4 mb-4 transition-colors hover:bg-secondary/60">
+          <div className="flex justify-between text-[11px] text-muted-foreground mb-2 font-mono uppercase tracking-wider">
+            <span>Amount ({tokenSymbol})</span>
+            <button onClick={handleMax} className="hover:text-foreground transition-colors normal-case">
+              {sourceBalance} <span className="text-foreground font-semibold">MAX</span>
+            </button>
+          </div>
+          <input 
+            type="number" 
+            value={amount} 
+            onChange={(e) => setAmount(e.target.value)} 
+            placeholder="0.0" 
+            className="w-full bg-transparent text-[34px] font-medium tracking-tight outline-none placeholder:text-muted-foreground/30" 
+          />
         </div>
 
         <div className="space-y-1.5 mb-6 text-[11px] font-mono px-1">
@@ -800,13 +851,20 @@ const Bridge = () => {
             Connect wallet
           </button>
         ) : isWrongNetwork ? (
-          <button onClick={() => switchNetwork(targetChainId, direction === "to" ? SEPOLIA_NETWORK_PARAMS : LITVM_NETWORK_PARAMS)} className="w-full h-12 rounded-2xl text-[14px] font-medium tracking-tight bg-primary text-primary-foreground hover:brightness-110 transition-all">
-            Switch network to {direction === "to" ? "Sepolia" : "LitVM"}
+          <button 
+            onClick={() => switchNetwork(targetChainId, targetNetworkParams)} 
+            className="w-full h-12 rounded-2xl text-[14px] font-medium tracking-tight bg-primary text-primary-foreground hover:brightness-110 transition-all shadow-[var(--shadow-glow)]"
+          >
+            Switch network to {direction === "to" ? "Sepolia L1" : "LitVM LiteForge"}
           </button>
         ) : (
-          <button onClick={handleBridge} disabled={!amount || loading} className="btn-silver w-full h-12 rounded-2xl text-[14px] font-medium tracking-tight disabled:opacity-30 disabled:cursor-not-allowed flex justify-center items-center gap-2">
+          <button 
+            onClick={handleBridge} 
+            disabled={!amount || parseFloat(amount) <= 0 || loading} 
+            className="btn-silver w-full h-12 rounded-2xl text-[14px] font-medium tracking-tight disabled:opacity-30 disabled:cursor-not-allowed flex justify-center items-center gap-2"
+          >
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-            {direction === "to" ? "Deposit to LitVM" : "Withdraw to Sepolia"}
+            {!amount ? "Enter an amount" : direction === "to" ? "Deposit to LitVM" : "Withdraw to Sepolia"}
           </button>
         )}
       </div>
