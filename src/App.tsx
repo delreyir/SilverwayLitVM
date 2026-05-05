@@ -15,7 +15,7 @@ const LITVM_NETWORK_PARAMS = {
   chainName: "LitVM LiteForge",
   nativeCurrency: { name: "LitVM", symbol: "zkLTC", decimals: 18 },
   rpcUrls: ["https://liteforge.rpc.caldera.xyz/http"],
-  blockExplorerUrls: ["https://liteforge.explorer.caldera.xyz"],
+  blockExplorerUrls: ["https://liteffzorge.explorer.caldera.xyz"],
 };
 
 // ⚠️ Hada l-adresse dial Router mo2a9at bach t9bel lik MetaMask transaction
@@ -400,21 +400,33 @@ const SwapCard = () => {
     }
   };
 
-  // 2. SWAP LOGIC (REAL METAMASK TX)
+// 2. SWAP LOGIC (REAL BLOCKCHAIN TX)
   const handleSwap = async () => {
     setSwapping(true);
     try {
       toast.info(`Swapping ${amount} ${from} for ${to}...`, { description: "Please confirm in your wallet." });
       
-      const amountWei = BigInt(parseFloat(amount) * (10 ** (fromToken.decimals || 18))).toString(16);
+      let txData = "";
+      let txValue = "0x0";
+
+      if (from === "zkLTC") {
+        // Swap zkLTC to USDC (Function selector for `swapExactETHForTokens()`)
+        txData = "0xb6f9de95"; 
+        txValue = "0x" + BigInt(parseFloat(amount) * 1e18).toString(16);
+      } else {
+        // Swap USDC to zkLTC (Function selector for `swapExactTokensForETH(uint256)`)
+        // Hada houwa l-koud li jbti nta mn l-Error dial MetaMask!
+        const amountInUnits = BigInt(parseFloat(amount) * 1e6).toString(16);
+        txData = "0x7f92c8a6" + amountInUnits.padStart(64, "0");
+      }
 
       await (window as any).ethereum.request({
         method: 'eth_sendTransaction',
         params: [{
           from: profile.wallet_address,
           to: DEX_ROUTER_ADDRESS,
-          value: fromToken.isNative ? "0x" + amountWei : "0x0", 
-          data: "0x" 
+          value: txValue, 
+          data: txData 
         }]
       });
 
