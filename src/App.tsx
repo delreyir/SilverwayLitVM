@@ -715,26 +715,26 @@ const Bridge = () => {
   const [loading, setLoading] = useState(false);
   const [sourceBalance, setSourceBalance] = useState("0.00");
   
-  // Zdt l-ikhtiyar dial token: "zkLTC" awla "USDC"
   const [asset, setAsset] = useState("zkLTC"); 
 
   const fromChain = direction === "to" ? "Sepolia L1" : "LitVM LiteForge";
   const toChain = direction === "to" ? "LitVM LiteForge" : "Sepolia L1";
 
-  // Addresses dial USDC f L1 w L2
   const USDC_L2 = "0x6fefE517cAe9924EE3eFbd9423Fd707d55ED3bcA";
   const USDC_L1 = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"; 
 
-  // Fix dial Rabby Chain ID
-  let currentChainHex = "";
-  if (profile?.chain_id) {
-     try { currentChainHex = "0x" + BigInt(profile.chain_id).toString(16); } catch(e) {}
-  }
-  const targetChainId = direction === "to" ? SEPOLIA_CHAIN_ID : LITVM_CHAIN_ID;
+  // BULLETPROOF NETWORK CHECK
+  const currentChainIdNum = Number(profile?.chain_id);
+  const targetChainIdHex = direction === "to" ? SEPOLIA_CHAIN_ID : LITVM_CHAIN_ID;
+  const targetChainIdNum = Number(targetChainIdHex);
   const targetNetworkParams = direction === "to" ? SEPOLIA_NETWORK_PARAMS : LITVM_NETWORK_PARAMS;
-  const isWrongNetwork = currentChainHex && currentChainHex !== targetChainId;
+  
+  // Ila chain mafihach nafs r-r9m, awla ba9i mat-chargatch = Wrong Network
+  const isWrongNetwork = profile?.wallet_address && (currentChainIdNum !== targetChainIdNum || isNaN(currentChainIdNum));
 
-  // L-Balance dynamique 3la 7ssab chno 3zelti
+  // T-biyn l-ism s7i7 dial Native Token f L1
+  const displayAsset = direction === "to" && asset === "zkLTC" ? "Sepolia ETH" : asset;
+
   useEffect(() => {
     if (!profile?.wallet_address) {
       setSourceBalance("0.00");
@@ -747,7 +747,6 @@ const Bridge = () => {
         const rpcUrl = direction === "to" ? "https://ethereum-sepolia-rpc.publicnode.com" : "https://liteforge.rpc.caldera.xyz/http";
         
         if (asset === "zkLTC") {
-          // Jbed Native Balance (Sepolia ETH ola zkLTC)
           const res = await fetch(rpcUrl, {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ jsonrpc: "2.0", method: "eth_getBalance", params: [profile.wallet_address, "latest"], id: 1 })
@@ -755,7 +754,6 @@ const Bridge = () => {
           const d = await res.json();
           if (d.result && isMounted) setSourceBalance((Number(BigInt(d.result)) / 1e18).toFixed(4));
         } else {
-          // Jbed USDC Balance (ERC20)
           const usdcAddr = direction === "to" ? USDC_L1 : USDC_L2;
           const dataPayload = "0x70a08231000000000000000000000000" + profile.wallet_address.toLowerCase().replace("0x", "");
           const res = await fetch(rpcUrl, {
@@ -775,7 +773,7 @@ const Bridge = () => {
     fetchBalance();
     const interval = setInterval(fetchBalance, 5000);
     return () => { isMounted = false; clearInterval(interval); };
-  }, [profile?.wallet_address, direction, asset]);
+  }, [profile?.wallet_address, direction, asset, isWrongNetwork]);
 
   const handleMax = () => {
     if (parseFloat(sourceBalance) > 0) {
@@ -795,7 +793,7 @@ const Bridge = () => {
       const BRIDGE_ADDRESS = "0x8979D2051663FffA2dBEEba2Efb0D4A0d6EcfFE0"; 
       
       if (direction === "to") {
-        toast.info(`Initiating ${asset} Deposit...`, { description: "Confirm transaction in your wallet." });
+        toast.info(`Initiating ${displayAsset} Deposit...`, { description: "Confirm transaction in your wallet." });
         
         if (asset === "zkLTC") {
           // Native Deposit
@@ -818,7 +816,7 @@ const Bridge = () => {
           });
         }
 
-        toast.success("Deposit submitted!", { description: `${asset} will arrive on LitVM in ~5-15 mins.` });
+        toast.success("Deposit submitted!", { description: `${displayAsset} will arrive on LitVM in ~5-15 mins.` });
         setAmount("");
       } else {
         toast.info("Withdrawals require challenge period.", { description: "You are initiating a standard withdrawal." });
@@ -876,7 +874,6 @@ const Bridge = () => {
               placeholder="0.0" 
               className="flex-1 bg-transparent text-[34px] font-medium tracking-tight outline-none placeholder:text-muted-foreground/30 min-w-0" 
             />
-            {/* L-menu d'ikhtiyar dial Token */}
             <DropdownMenu>
               <DropdownMenuTrigger>
                 <button className="flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-full bg-secondary/80 border border-border/60 hover:border-border transition-colors shrink-0">
@@ -908,7 +905,7 @@ const Bridge = () => {
           </button>
         ) : isWrongNetwork ? (
           <button 
-            onClick={() => switchNetwork(targetChainId, targetNetworkParams)} 
+            onClick={() => switchNetwork(targetChainIdHex, targetNetworkParams)} 
             className="w-full h-12 rounded-2xl text-[14px] font-medium tracking-tight bg-primary text-primary-foreground hover:brightness-110 transition-all shadow-[var(--shadow-glow)]"
           >
             Switch to {direction === "to" ? "Sepolia L1" : "LitVM LiteForge"}
@@ -920,7 +917,7 @@ const Bridge = () => {
             className="btn-silver w-full h-12 rounded-2xl text-[14px] font-medium tracking-tight disabled:opacity-30 disabled:cursor-not-allowed flex justify-center items-center gap-2"
           >
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-            {!amount ? "Enter an amount" : direction === "to" ? `Deposit ${asset} to LitVM` : `Withdraw ${asset} to Sepolia`}
+            {!amount ? "Enter an amount" : direction === "to" ? `Deposit ${displayAsset} to LitVM` : `Withdraw ${displayAsset} to Sepolia`}
           </button>
         )}
       </div>
