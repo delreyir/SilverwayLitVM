@@ -706,7 +706,7 @@ const SwapCard = () => {
 };
 
 /* =====================================================================
-   NEW: NATIVE BRIDGE COMPONENT (USDC: SEPOLIA <-> LITVM)
+   NEW: NATIVE BRIDGE COMPONENT (ZKLTC & USDC: SEPOLIA <-> LITVM)
    ===================================================================== */
 const Bridge = () => {
   const { isConnected, profile, connect, switchNetwork } = useWalletAuth();
@@ -714,16 +714,18 @@ const Bridge = () => {
   const [direction, setDirection] = useState("to"); // "to" = Sepolia -> LitVM
   const [loading, setLoading] = useState(false);
   const [sourceBalance, setSourceBalance] = useState("0.00");
+  
+  // Zdt l-ikhtiyar dial token: "zkLTC" awla "USDC"
+  const [asset, setAsset] = useState("zkLTC"); 
 
   const fromChain = direction === "to" ? "Sepolia L1" : "LitVM LiteForge";
   const toChain = direction === "to" ? "LitVM LiteForge" : "Sepolia L1";
-  const tokenSymbol = "USDC";
 
-  // Address dial USDC f LitVM w Sepolia
+  // Addresses dial USDC f L1 w L2
   const USDC_L2 = "0x6fefE517cAe9924EE3eFbd9423Fd707d55ED3bcA";
-  const USDC_L1 = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"; // Mock Sepolia USDC
+  const USDC_L1 = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"; 
 
-  // Fix dial Rabby Chain ID: kan-7ewlo kolchi l-Hex bach y-t9arn s7i7
+  // Fix dial Rabby Chain ID
   let currentChainHex = "";
   if (profile?.chain_id) {
      try { currentChainHex = "0x" + BigInt(profile.chain_id).toString(16); } catch(e) {}
@@ -732,7 +734,7 @@ const Bridge = () => {
   const targetNetworkParams = direction === "to" ? SEPOLIA_NETWORK_PARAMS : LITVM_NETWORK_PARAMS;
   const isWrongNetwork = currentChainHex && currentChainHex !== targetChainId;
 
-  // Jbed l-Balance dial USDC b sse7 mn RPC
+  // L-Balance dynamique 3la 7ssab chno 3zelti
   useEffect(() => {
     if (!profile?.wallet_address) {
       setSourceBalance("0.00");
@@ -740,41 +742,49 @@ const Bridge = () => {
     }
 
     let isMounted = true;
-    const fetchUSDCBalance = async () => {
+    const fetchBalance = async () => {
       try {
         const rpcUrl = direction === "to" ? "https://ethereum-sepolia-rpc.publicnode.com" : "https://liteforge.rpc.caldera.xyz/http";
-        const usdcAddr = direction === "to" ? USDC_L1 : USDC_L2;
         
-        // Data payload bach n-3eyto l fonction `balanceOf(address)` f USDC Contract
-        const dataPayload = "0x70a08231000000000000000000000000" + profile.wallet_address.toLowerCase().replace("0x", "");
-
-        const res = await fetch(rpcUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jsonrpc: "2.0", method: "eth_call", params: [{ to: usdcAddr, data: dataPayload }, "latest"], id: 1 })
-        });
-        const d = await res.json();
-        
-        if (d.result && d.result !== "0x" && isMounted) {
-          // USDC kay-khdem b 6 decimals
-          const val = Number(BigInt(d.result)) / 1e6;
-          setSourceBalance(val.toFixed(2));
-        } else if (isMounted) {
-          setSourceBalance("0.00");
+        if (asset === "zkLTC") {
+          // Jbed Native Balance (Sepolia ETH ola zkLTC)
+          const res = await fetch(rpcUrl, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jsonrpc: "2.0", method: "eth_getBalance", params: [profile.wallet_address, "latest"], id: 1 })
+          });
+          const d = await res.json();
+          if (d.result && isMounted) setSourceBalance((Number(BigInt(d.result)) / 1e18).toFixed(4));
+        } else {
+          // Jbed USDC Balance (ERC20)
+          const usdcAddr = direction === "to" ? USDC_L1 : USDC_L2;
+          const dataPayload = "0x70a08231000000000000000000000000" + profile.wallet_address.toLowerCase().replace("0x", "");
+          const res = await fetch(rpcUrl, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jsonrpc: "2.0", method: "eth_call", params: [{ to: usdcAddr, data: dataPayload }, "latest"], id: 1 })
+          });
+          const d = await res.json();
+          if (d.result && d.result !== "0x" && isMounted) {
+            setSourceBalance((Number(BigInt(d.result)) / 1e6).toFixed(2));
+          } else if (isMounted) setSourceBalance("0.00");
         }
       } catch (e) {
-        console.warn("Failed to fetch USDC balance", e);
+        console.warn("Failed to fetch balance", e);
       }
     };
 
-    fetchUSDCBalance();
-    const interval = setInterval(fetchUSDCBalance, 5000);
+    fetchBalance();
+    const interval = setInterval(fetchBalance, 5000);
     return () => { isMounted = false; clearInterval(interval); };
-  }, [profile?.wallet_address, direction]);
+  }, [profile?.wallet_address, direction, asset]);
 
   const handleMax = () => {
     if (parseFloat(sourceBalance) > 0) {
-      setAmount(sourceBalance); // F USDC makn-7iydoch l-gas 7it l-gas kaytkhlss b ETH/zkLTC
+      if (asset === "zkLTC" && direction === "to") {
+        const maxVal = Math.max(0, parseFloat(sourceBalance) - 0.005);
+        setAmount(maxVal.toFixed(4));
+      } else {
+        setAmount(sourceBalance);
+      }
     }
   };
 
@@ -783,31 +793,32 @@ const Bridge = () => {
     setLoading(true);
     try {
       const BRIDGE_ADDRESS = "0x8979D2051663FffA2dBEEba2Efb0D4A0d6EcfFE0"; 
-      const usdcAddress = direction === "to" ? USDC_L1 : USDC_L2;
       
-      // USDC b 6 decimals
-      const amountUnits = BigInt(parseFloat(amount) * 1e6).toString(16);
-      
-      // N-saybo Transaction ERC20 `transfer(to, amount)`
-      const funcSelector = "0xa9059cbb"; // ERC20 transfer()
-      const paddedBridge = BRIDGE_ADDRESS.toLowerCase().replace("0x", "").padStart(64, "0");
-      const paddedAmount = amountUnits.padStart(64, "0");
-      const txData = funcSelector + paddedBridge + paddedAmount;
-
       if (direction === "to") {
-        toast.info("Initiating Deposit...", { description: "Confirm USDC transfer in your wallet." });
+        toast.info(`Initiating ${asset} Deposit...`, { description: "Confirm transaction in your wallet." });
         
-        await (window as any).ethereum.request({
-          method: 'eth_sendTransaction',
-          params: [{
-            from: profile.wallet_address,
-            to: usdcAddress, // Kantsifto l USDC Contract bach y-dir transfert l-Bridge
-            value: "0x0",
-            data: txData 
-          }]
-        });
+        if (asset === "zkLTC") {
+          // Native Deposit
+          const amountWei = BigInt(parseFloat(amount) * 1e18).toString(16);
+          await (window as any).ethereum.request({
+            method: 'eth_sendTransaction',
+            params: [{ from: profile.wallet_address, to: BRIDGE_ADDRESS, value: "0x" + amountWei, data: "0x" }]
+          });
+        } else {
+          // USDC Deposit
+          const amountUnits = BigInt(parseFloat(amount) * 1e6).toString(16);
+          const funcSelector = "0xa9059cbb"; 
+          const paddedBridge = BRIDGE_ADDRESS.toLowerCase().replace("0x", "").padStart(64, "0");
+          const paddedAmount = amountUnits.padStart(64, "0");
+          const txData = funcSelector + paddedBridge + paddedAmount;
 
-        toast.success("Deposit submitted!", { description: "USDC will arrive on LitVM in ~5-15 mins." });
+          await (window as any).ethereum.request({
+            method: 'eth_sendTransaction',
+            params: [{ from: profile.wallet_address, to: USDC_L1, value: "0x0", data: txData }]
+          });
+        }
+
+        toast.success("Deposit submitted!", { description: `${asset} will arrive on LitVM in ~5-15 mins.` });
         setAmount("");
       } else {
         toast.info("Withdrawals require challenge period.", { description: "You are initiating a standard withdrawal." });
@@ -847,26 +858,46 @@ const Bridge = () => {
         </div>
 
         <div className="rounded-2xl bg-secondary/40 border border-border/50 p-4 mb-4 transition-colors hover:bg-secondary/60">
-          <div className="flex justify-between text-[11px] text-muted-foreground mb-2 font-mono uppercase tracking-wider">
-            <span>Amount ({tokenSymbol})</span>
-            <button onClick={handleMax} className="hover:text-foreground transition-colors normal-case">
-              {sourceBalance} <span className="text-foreground font-semibold">MAX</span>
-            </button>
+          <div className="flex justify-between items-center mb-3">
+            <span className="text-[11px] text-muted-foreground font-mono uppercase tracking-wider">Amount</span>
+            <div className="flex items-center gap-2 text-[11px] font-mono">
+              <span className="text-muted-foreground">Balance:</span>
+              <button onClick={handleMax} className="text-foreground hover:text-primary transition-colors">
+                {sourceBalance} <span className="font-semibold">MAX</span>
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          
+          <div className="flex items-center gap-3">
             <input 
               type="number" 
               value={amount} 
               onChange={(e) => setAmount(e.target.value)} 
               placeholder="0.0" 
-              className="w-full bg-transparent text-[34px] font-medium tracking-tight outline-none placeholder:text-muted-foreground/30" 
+              className="flex-1 bg-transparent text-[34px] font-medium tracking-tight outline-none placeholder:text-muted-foreground/30 min-w-0" 
             />
-            <TokenIcon symbol="USDC" size={32} />
+            {/* L-menu d'ikhtiyar dial Token */}
+            <DropdownMenu>
+              <DropdownMenuTrigger>
+                <button className="flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-full bg-secondary/80 border border-border/60 hover:border-border transition-colors shrink-0">
+                  <TokenIcon symbol={asset} size={24} />
+                  <span className="font-medium text-[14px]">{asset}</span>
+                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-40">
+                <DropdownMenuItem onClick={() => setAsset("zkLTC")} className="gap-2">
+                  <TokenIcon symbol="zkLTC" size={20} /> <span className="font-medium">zkLTC</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setAsset("USDC")} className="gap-2">
+                  <TokenIcon symbol="USDC" size={20} /> <span className="font-medium">USDC</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
         <div className="space-y-1.5 mb-6 text-[11px] font-mono px-1">
-          <div className="flex justify-between"><span className="text-muted-foreground">Type</span><span className="text-foreground/90">Native Rollup Bridge</span></div>
           <div className="flex justify-between"><span className="text-muted-foreground">Est. time</span><span className="text-foreground/90">{direction === "to" ? "~ 10-15 min" : "~ 7 Days (Challenge)"}</span></div>
           <div className="flex justify-between"><span className="text-muted-foreground">Bridge fee</span><span className="text-success font-medium">Gas Only</span></div>
         </div>
@@ -889,7 +920,7 @@ const Bridge = () => {
             className="btn-silver w-full h-12 rounded-2xl text-[14px] font-medium tracking-tight disabled:opacity-30 disabled:cursor-not-allowed flex justify-center items-center gap-2"
           >
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-            {!amount ? "Enter an amount" : direction === "to" ? "Deposit USDC to LitVM" : "Withdraw USDC to Sepolia"}
+            {!amount ? "Enter an amount" : direction === "to" ? `Deposit ${asset} to LitVM` : `Withdraw ${asset} to Sepolia`}
           </button>
         )}
       </div>
