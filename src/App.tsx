@@ -723,49 +723,55 @@ const Bridge = () => {
   const targetNetworkParams = direction === "to" ? SEPOLIA_NETWORK_PARAMS : LITVM_NETWORK_PARAMS;
   const isWrongNetwork = profile?.chain_id && profile.chain_id !== targetChainId;
 
-  // Hna beddelna l-logic bach njbdo l-balance directement mn l-Wallet (Rabby) bla API khrin
   useEffect(() => {
     if (!profile?.wallet_address) {
       setSourceBalance("0.0000");
       return;
     }
-    
+
     let isMounted = true;
     const fetchBridgeBalance = async () => {
-      try {
-        // Ila l-wallet f r-reseau s7i7, n9raw l-balance mno directement
-        if (!isWrongNetwork && (window as any).ethereum) {
-          const hex = await (window as any).ethereum.request({
-            method: 'eth_getBalance',
-            params: [profile.wallet_address, 'latest']
-          });
-          if (isMounted) setSourceBalance((Number(BigInt(hex)) / 1e18).toFixed(4));
-        } else {
-          // Ila mazal maswitcha, nsta3mlo RPC public khor n9iy chwiya (publicnode)
-          const rpcUrl = direction === "to" ? "https://ethereum-sepolia-rpc.publicnode.com" : "https://liteforge.rpc.caldera.xyz/http";
-          const res = await fetch(rpcUrl, {
+      // Lista dial RPCs s7a7 bach ntfiw mochkil dial CORS
+      const rpcs = direction === "to" 
+        ? ["https://rpc2.sepolia.org", "https://gateway.tenderly.co/public/sepolia", "https://ethereum-sepolia-rpc.publicnode.com"]
+        : ["https://liteforge.rpc.caldera.xyz/http"];
+
+      let fetched = false;
+      for (let rpc of rpcs) {
+        try {
+          const res = await fetch(rpc, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ jsonrpc: "2.0", method: "eth_getBalance", params: [profile.wallet_address, "latest"], id: 1 })
           });
           const data = await res.json();
-          if (data.result && isMounted) {
+          if (data.result !== undefined && isMounted) {
             setSourceBalance((Number(BigInt(data.result)) / 1e18).toFixed(4));
+            fetched = true;
+            break; // Ila jbdo mn rpc lawel, y7bess
           }
+        } catch (e) {
+          console.warn(`RPC ${rpc} failed, trying next...`);
         }
-      } catch (e) {
-        console.error("Balance fetch error:", e);
+      }
+      
+      // Fallback l-wallet ila rpcs kamlin tblocaw (w ykon l-network s7i7)
+      if (!fetched && isMounted && !isWrongNetwork && (window as any).ethereum) {
+         try {
+            const hex = await (window as any).ethereum.request({ method: 'eth_getBalance', params: [profile.wallet_address, 'latest'] });
+            setSourceBalance((Number(BigInt(hex)) / 1e18).toFixed(4));
+         } catch(e) {}
       }
     };
-    
+
     fetchBridgeBalance();
-    const interval = setInterval(fetchBridgeBalance, 5000); 
+    const interval = setInterval(fetchBridgeBalance, 10000);
     return () => { isMounted = false; clearInterval(interval); };
   }, [profile?.wallet_address, direction, isWrongNetwork]);
 
   const handleMax = () => {
     if (parseFloat(sourceBalance) > 0) {
-      // Kan-kheliw 0.005 f l-balance dial Sepolia 3la wed l-gas dial transaction
+      // Khalina 0.005 f l-balance dial Sepolia 3la wed l-gas dial transaction
       const maxVal = direction === "to" ? Math.max(0, parseFloat(sourceBalance) - 0.005) : parseFloat(sourceBalance);
       setAmount(maxVal.toFixed(4));
     }
@@ -775,7 +781,7 @@ const Bridge = () => {
     if (!isConnected || !amount || isWrongNetwork) return;
     setLoading(true);
     try {
-      // L-adresse dial l-Bridge Contract lli dertiha f l-L1
+      // Caldera Native Bridge L1 Address
       const BRIDGE_ADDRESS = "0x8979D2051663FffA2dBEEba2Efb0D4A0d6EcfFE0"; 
       const amountWei = BigInt(parseFloat(amount) * 1e18).toString(16);
       
@@ -788,7 +794,7 @@ const Bridge = () => {
             from: profile.wallet_address,
             to: BRIDGE_ADDRESS,
             value: "0x" + amountWei, 
-            data: "0x"
+            data: "0x" // Send ETH native directly
           }]
         });
 
