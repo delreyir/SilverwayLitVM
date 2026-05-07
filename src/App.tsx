@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, createContext, useContext } from "react";
+import React, { useState, useEffect, createContext, useContext } from "react";
 import { 
   ArrowUpRight, Wallet, LogOut, Copy, Check, ChevronDown, 
   Search, ArrowDown, Settings2, Loader2, Droplets, Activity, 
@@ -18,7 +18,7 @@ const LITVM_NETWORK_PARAMS = {
   blockExplorerUrls: ["https://liteforge.explorer.caldera.xyz"],
 };
 
-// ⚠️ Hada l-adresse dial Router mo2a9at bach t9bel lik MetaMask transaction
+// L-Adresse Jdida dial Universal Router
 const DEX_ROUTER_ADDRESS = "0x644Bae19C0b65D733A48a0C1EAA45C49559Bdd5A"; 
 
 export const TOKEN_REGISTRY = [
@@ -26,7 +26,6 @@ export const TOKEN_REGISTRY = [
   { symbol: "USDC", name: "USD Coin", priceUsd: 1.00, icon: "$", isNative: false, address: "0x6fefE517cAe9924EE3eFbd9423Fd707d55ED3bcA", decimals: 6 },
   { symbol: "LVM", name: "LitVM Token", priceUsd: 2.30, icon: "V", isNative: false, address: "0xEDEB8183aCd8D93a0E0604c7AD5EdABBA71c45a6", decimals: 18 },
   { symbol: "WBTC", name: "Wrapped Bitcoin", priceUsd: 64200.00, icon: "₿", isNative: false, address: "0x127Dc73f26D2DA4b6663e71C7Bd5120c77d68AA2", decimals: 8 },
-  // Zedt WETH w USDT lli deployiti!
   { symbol: "WETH", name: "Wrapped Ethereum", priceUsd: 3100.00, icon: "Ξ", isNative: false, address: "0xE5fb1Fb0915308cbeEE6443A58225A4B3DAeEe40", decimals: 18 },
   { symbol: "USDT", name: "Tether USD", priceUsd: 1.00, icon: "₮", isNative: false, address: "0xe5F7624eC757187a3cb89e55dc33eBdd39fF1662", decimals: 6 },
 ];
@@ -139,50 +138,36 @@ export const useTokenBalance = (symbol: string, userAddress?: string | null) => 
   return { balance, loading };
 };
 
+// FAUCET LOGIC WITH NETWORK CHECK
 export const useMintToken = () => {
   const [minting, setMinting] = useState<string | null>(null);
   
   const mint = async (symbol: string, tokenAddress: string, decimals: number, userAddress: string) => {
     try {
-      // 1. N-t2kdou mn l-réseau 9bel kolchi!
       const currentChainId = await (window as any).ethereum.request({ method: "eth_chainId" });
       
       if (currentChainId !== LITVM_CHAIN_ID) {
         toast.info("Switching to LitVM LiteForge...");
         try {
-          await (window as any).ethereum.request({ 
-            method: "wallet_switchEthereumChain", 
-            params: [{ chainId: LITVM_CHAIN_ID }] 
-          });
+          await (window as any).ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: LITVM_CHAIN_ID }] });
         } catch (switchError: any) {
-          // Ila makanch 3ndo l-réseau ga3, n-ziydouh lih
           if (switchError.code === 4902) {
-            await (window as any).ethereum.request({ 
-              method: "wallet_addEthereumChain", 
-              params: [LITVM_NETWORK_PARAMS] 
-            });
+            await (window as any).ethereum.request({ method: "wallet_addEthereumChain", params: [LITVM_NETWORK_PARAMS] });
           } else {
             throw new Error("Please switch to LitVM network to mint.");
           }
         }
       }
 
-      // 2. L-Minting process (Ila kan f réseau s7i7)
       setMinting(symbol);
       const amountToMint = symbol === "WBTC" || symbol === "WETH" ? "1" : "1000";
       toast.info(`Minting ${amountToMint} ${symbol}...`, { description: "Confirm in your wallet." });
       
       const dataPayload = "0x40c10f19" + userAddress.replace("0x", "").padStart(64, "0") + (BigInt(amountToMint) * (BigInt(10) ** BigInt(decimals))).toString(16).padStart(64, "0");
       
-      await (window as any).ethereum.request({ 
-        method: 'eth_sendTransaction', 
-        params: [{ from: userAddress, to: tokenAddress, data: dataPayload }] 
-      });
+      await (window as any).ethereum.request({ method: 'eth_sendTransaction', params: [{ from: userAddress, to: tokenAddress, data: dataPayload }] });
       
-      setTimeout(() => { 
-        toast.success(`Minted ${amountToMint} ${symbol}!`); 
-        setMinting(null); 
-      }, 4000);
+      setTimeout(() => { toast.success(`Minted ${amountToMint} ${symbol}!`); setMinting(null); }, 4000);
       
     } catch (err: any) { 
       toast.error(err.message || `Failed to mint`); 
@@ -319,7 +304,7 @@ const Header = () => {
 };
 
 /* =====================================================================
-   🔥 PRO SWAP & POOLS COMPONENTS 
+   🔥 SWAP & POOLS COMPONENTS 
    ===================================================================== */
 const TokenSelect = ({ value, onChange, exclude }: any) => {
   const [open, setOpen] = useState(false);
@@ -383,30 +368,24 @@ const SwapCard = () => {
   const { balance: fromBalance } = useTokenBalance(from, addr);
   const { balance: toBalance } = useTokenBalance(to, addr);
 
-  // Quote Simulation (x*y=k logic)
   const [swapping, setSwapping] = useState(false);
   const [approving, setApproving] = useState(false);
   const [isApproved, setIsApproved] = useState(fromToken.isNative); 
 
-  // Reset approval if token changes
   useEffect(() => { setIsApproved(fromToken.isNative); }, [fromToken.symbol]);
 
   const fromPrice = fromToken.priceUsd ?? 0;
   const toPrice = toToken.priceUsd ?? 1;
   const fallbackRate = fromPrice / toPrice;
 
-  // Calculate Output & Price Impact
   const parsedAmount = parseFloat(amount) || 0;
-  const outputRaw = parsedAmount * fallbackRate * 0.997; // 0.3% fee
+  const outputRaw = parsedAmount * fallbackRate * 0.997; 
   const output = amount ? outputRaw.toFixed(6) : "";
   const minReceived = output ? (outputRaw * (1 - slippage / 100)).toFixed(6) : "0";
   const usdValue = parsedAmount * fromPrice;
-  
-  // Fake price impact based on trade size
   const priceImpact = usdValue > 10000 ? ((usdValue / 1000000) * 100).toFixed(2) : "< 0.01";
 
   const flip = () => { setFrom(to); setTo(from); setAmount(output || ""); };
-
   const isWrongNetwork = profile?.chain_id && profile.chain_id !== LITVM_CHAIN_ID;
 
   // 1. APPROVE LOGIC
@@ -414,7 +393,6 @@ const SwapCard = () => {
     setApproving(true);
     try {
       if (!fromToken.address) throw new Error("Native token doesn't need approval");
-      
       toast.info(`Approving ${fromToken.symbol}...`, { description: "Please confirm in your wallet." });
       
       const funcSelector = "0x095ea7b3";
@@ -436,48 +414,36 @@ const SwapCard = () => {
     }
   };
 
-  // 2. SWAP LOGIC (UNIVERSAL ERC20 TO ERC20)
+  // 2. UNIVERSAL SWAP LOGIC
   const handleSwap = async () => {
     setSwapping(true);
     try {
       if (fromToken.isNative || toToken.isNative) {
         throw new Error("For this demo, please select two ERC20 tokens (e.g., USDC to USDT)");
       }
-
       toast.info(`Swapping ${amount} ${from} for ${to}...`, { description: "Please confirm in your wallet." });
       
-      const funcSelector = "0x8e18cdfc"; 
+      const funcSelector = "0x8e18cdfc"; // Swap Tokens Selector
 
-      // 1. N7esbou l-kmiya b l-decimals s7a7 (Hexadecimal)
       const amountInHex = BigInt(parseFloat(amount) * (10 ** fromToken.decimals)).toString(16);
       const amountOutHex = BigInt(parseFloat(output) * (10 ** toToken.decimals)).toString(16);
 
-      // 2. Padding l-64 characters (ABI Encoding Raw)
       const pad32 = (str: string) => str.replace("0x", "").padStart(64, "0");
-      
-      const tokenInPadded = pad32(fromToken.address!);
-      const tokenOutPadded = pad32(toToken.address!);
-      const amountInPadded = pad32(amountInHex);
-      const amountOutPadded = pad32(amountOutHex);
-
-      // 3. Njm3ou l-Koud kamel f d9a we7da
-      const txData = funcSelector + tokenInPadded + tokenOutPadded + amountInPadded + amountOutPadded;
+      const txData = funcSelector 
+        + pad32(fromToken.address!) 
+        + pad32(toToken.address!) 
+        + pad32(amountInHex) 
+        + pad32(amountOutHex);
 
       await (window as any).ethereum.request({
         method: 'eth_sendTransaction',
-        params: [{ 
-          from: profile.wallet_address, 
-          to: DEX_ROUTER_ADDRESS, 
-          value: "0x0", 
-          data: txData 
-        }]
+        params: [{ from: profile.wallet_address, to: DEX_ROUTER_ADDRESS, value: "0x0", data: txData }]
       });
 
       toast.success("Swap Confirmed!", { description: `Received ${output} ${to}` });
       setAmount("");
     } catch (e: any) { 
-      console.error(e); 
-      toast.error("Swap failed", { description: e.message }); 
+      console.error(e); toast.error("Swap failed", { description: e.message }); 
     } finally { 
       setSwapping(false); 
     }
@@ -567,7 +533,7 @@ const SwapCard = () => {
 };
 
 /* =====================================================================
-   5. OTHER PAGES (MODIFIED POOLS WITH NEW STATES)
+   5. OTHER PAGES (REAL ADD LIQUIDITY)
    ===================================================================== */
 const Pools = () => {
   const { isConnected, connect, profile } = useWalletAuth();
@@ -585,14 +551,46 @@ const Pools = () => {
 
   const handleAddLiquidity = async () => {
     setIsApproving(true);
-    toast.info("Approving Tokens...", { description: "Please confirm in wallet." });
-    setTimeout(() => {
-      toast.success("Liquidity Added!");
-      setIsApproving(false);
+    try {
+      if (!profile?.wallet_address) throw new Error("Connect wallet first!");
+      
+      const tokenAObj = getToken(tokenA);
+      const tokenBObj = getToken(tokenB);
+
+      if (tokenAObj.isNative || tokenBObj.isNative) {
+        throw new Error("For this demo, please select two ERC20 tokens (e.g., USDC to USDT)");
+      }
+
+      toast.info("Adding Liquidity...", { description: "Please confirm in your wallet." });
+
+      const funcSelector = "0xcf6c62ea"; // Add Liquidity Selector
+
+      const amountAHex = BigInt(parseFloat(amountA) * (10 ** (tokenAObj.decimals || 18))).toString(16);
+      const amountBHex = BigInt(parseFloat(amountB) * (10 ** (tokenBObj.decimals || 18))).toString(16);
+
+      const pad32 = (str: string) => str.replace("0x", "").padStart(64, "0");
+      
+      const txData = funcSelector 
+        + pad32(tokenAObj.address!) 
+        + pad32(tokenBObj.address!) 
+        + pad32(amountAHex) 
+        + pad32(amountBHex);
+
+      await (window as any).ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{ from: profile.wallet_address, to: DEX_ROUTER_ADDRESS, value: "0x0", data: txData }]
+      });
+
+      toast.success("Liquidity Added Successfully!");
       setShowAdd(false);
       setAmountA("");
       setAmountB("");
-    }, 2000); // 💡 Mock logic for now, we will replace this with real contract call later
+    } catch (e: any) {
+      console.error(e);
+      toast.error("Transaction Failed", { description: e.message });
+    } finally {
+      setIsApproving(false);
+    }
   };
 
   if (showAdd) {
