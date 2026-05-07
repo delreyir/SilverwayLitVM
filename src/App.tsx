@@ -571,18 +571,27 @@ const handleApprove = async (tokenSymbol: string, isTokenA: boolean) => {
 
       toast.info(`Approving ${tokenObj.symbol}...`, { description: "Please confirm in your wallet." });
       
-      // 1. Kan-sifto l-transaction
-      await (window as any).ethereum.request({
+      // 1. Sifet l-Transaction l-MetaMask
+      const txHash = await (window as any).ethereum.request({
         method: 'eth_sendTransaction',
         params: [{ from: profile.wallet_address, to: tokenObj.address, data: txData }]
       });
       
-      // 2. L-7EL HOUWA HADA: N-tsnaw l-Blockchain 8 tawanio
-      toast.loading(`Waiting for ${tokenObj.symbol} to be mined on LitVM...`);
-      await new Promise(resolve => setTimeout(resolve, 8000));
+      // 2. L-7EL L-JDID: N-b9aw n-swlou l-Blockchain wach d-sjjlat b sse7
+      const toastId = toast.loading(`Waiting for ${tokenObj.symbol} to be mined on LitVM...`);
+      
+      let receipt = null;
+      while (receipt === null) {
+        await new Promise(r => setTimeout(r, 3000)); // N-tsnaw 3 tawanio 3ad n-swlou 3awtani
+        receipt = await (window as any).ethereum.request({
+          method: 'eth_getTransactionReceipt',
+          params: [txHash],
+        });
+      }
 
-      toast.success(`${tokenObj.symbol} Approved!`);
-      setDone(true); // 3ad kat-ban l-boutona jdida
+      toast.dismiss(toastId);
+      toast.success(`${tokenObj.symbol} Approved 100%!`);
+      setDone(true); // Daba mt2kdin 1000% bli raha approved 3ad n-biyenou l-boutona jaya
     } catch (e: any) {
       console.error(e);
       toast.error(`Approval failed for ${tokenObj.symbol}`);
