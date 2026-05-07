@@ -436,31 +436,48 @@ const SwapCard = () => {
     }
   };
 
-  // 2. SWAP LOGIC
+  // 2. SWAP LOGIC (UNIVERSAL ERC20 TO ERC20)
   const handleSwap = async () => {
     setSwapping(true);
     try {
+      if (fromToken.isNative || toToken.isNative) {
+        throw new Error("For this demo, please select two ERC20 tokens (e.g., USDC to USDT)");
+      }
+
       toast.info(`Swapping ${amount} ${from} for ${to}...`, { description: "Please confirm in your wallet." });
       
-      let txData = ""; let txValue = "0x0";
+      const funcSelector = "0x8e18cdfc"; 
 
-      if (from === "zkLTC") {
-        txData = "0x8e18cdfc"; 
-        txValue = "0x" + BigInt(parseFloat(amount) * 1e18).toString(16);
-      } else {
-        const amountInUnits = BigInt(parseFloat(amount) * 1e6).toString(16);
-        txData = "0x7f92c8a6" + amountInUnits.padStart(64, "0");
-      }
+      // 1. N7esbou l-kmiya b l-decimals s7a7 (Hexadecimal)
+      const amountInHex = BigInt(parseFloat(amount) * (10 ** fromToken.decimals)).toString(16);
+      const amountOutHex = BigInt(parseFloat(output) * (10 ** toToken.decimals)).toString(16);
+
+      // 2. Padding l-64 characters (ABI Encoding Raw)
+      const pad32 = (str: string) => str.replace("0x", "").padStart(64, "0");
+      
+      const tokenInPadded = pad32(fromToken.address!);
+      const tokenOutPadded = pad32(toToken.address!);
+      const amountInPadded = pad32(amountInHex);
+      const amountOutPadded = pad32(amountOutHex);
+
+      // 3. Njm3ou l-Koud kamel f d9a we7da
+      const txData = funcSelector + tokenInPadded + tokenOutPadded + amountInPadded + amountOutPadded;
 
       await (window as any).ethereum.request({
         method: 'eth_sendTransaction',
-        params: [{ from: profile.wallet_address, to: DEX_ROUTER_ADDRESS, value: txValue, data: txData }]
+        params: [{ 
+          from: profile.wallet_address, 
+          to: DEX_ROUTER_ADDRESS, 
+          value: "0x0", 
+          data: txData 
+        }]
       });
 
       toast.success("Swap Confirmed!", { description: `Received ${output} ${to}` });
       setAmount("");
     } catch (e: any) { 
-      console.error(e); toast.error("Swap failed", { description: e.message }); 
+      console.error(e); 
+      toast.error("Swap failed", { description: e.message }); 
     } finally { 
       setSwapping(false); 
     }
