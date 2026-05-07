@@ -18,7 +18,7 @@ const LITVM_NETWORK_PARAMS = {
   blockExplorerUrls: ["https://liteforge.explorer.caldera.xyz"],
 };
 
-// L-Adresse Jdida dial Universal Router
+// L-Adresse dial Universal Router l-jdid lli saybti f Remix
 const DEX_ROUTER_ADDRESS = "0x644Bae19C0b65D733A48a0C1EAA45C49559Bdd5A"; 
 
 export const TOKEN_REGISTRY = [
@@ -304,7 +304,7 @@ const Header = () => {
 };
 
 /* =====================================================================
-   🔥 SWAP & POOLS COMPONENTS 
+   🔥 SWAP COMPONENT
    ===================================================================== */
 const TokenSelect = ({ value, onChange, exclude }: any) => {
   const [open, setOpen] = useState(false);
@@ -533,66 +533,68 @@ const SwapCard = () => {
 };
 
 /* =====================================================================
-   5. OTHER PAGES (REAL ADD LIQUIDITY)
+   5. OTHER PAGES (REAL ADD LIQUIDITY PRO UX)
    ===================================================================== */
 const Pools = () => {
   const { isConnected, connect, profile } = useWalletAuth();
   const [showAdd, setShowAdd] = useState(false);
+  
   const [tokenA, setTokenA] = useState("WETH");
   const [tokenB, setTokenB] = useState("USDT");
   const [amountA, setAmountA] = useState("");
   const [amountB, setAmountB] = useState("");
-  const [isApproving, setIsApproving] = useState(false);
+
+  const [approvedA, setApprovedA] = useState(false);
+  const [approvedB, setApprovedB] = useState(false);
+  const [isApprovingA, setIsApprovingA] = useState(false);
+  const [isApprovingB, setIsApprovingB] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+
+  useEffect(() => { setApprovedA(false); }, [tokenA]);
+  useEffect(() => { setApprovedB(false); }, [tokenB]);
 
   const { balance: balA } = useTokenBalance(tokenA, profile?.wallet_address);
   const { balance: balB } = useTokenBalance(tokenB, profile?.wallet_address);
 
   const fmt = (n: number) => (n >= 1e6 ? `$${(n / 1e6).toFixed(2)}M` : `$${(n / 1e3).toFixed(1)}K`);
 
-const handleAddLiquidity = async () => {
-    setIsApproving(true);
+  const handleApprove = async (tokenSymbol: string, isTokenA: boolean) => {
+    const setApp = isTokenA ? setIsApprovingA : setIsApprovingB;
+    const setDone = isTokenA ? setApprovedA : setApprovedB;
+    const tokenObj = getToken(tokenSymbol);
+
+    setApp(true);
     try {
-      if (!profile?.wallet_address) throw new Error("Connect wallet first!");
+      const spender = DEX_ROUTER_ADDRESS.replace("0x", "").padStart(64, "0");
+      const maxAmount = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+      const txData = "0x095ea7b3" + spender + maxAmount;
+
+      toast.info(`Approving ${tokenObj.symbol}...`, { description: "Please confirm in your wallet." });
       
+      await (window as any).ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{ from: profile.wallet_address, to: tokenObj.address, data: txData }]
+      });
+      
+      toast.success(`${tokenObj.symbol} Approved!`);
+      setDone(true);
+    } catch (e: any) {
+      console.error(e);
+      toast.error(`Approval failed for ${tokenObj.symbol}`);
+    } finally {
+      setApp(false);
+    }
+  };
+
+  const handleAddLiquidity = async () => {
+    setIsAdding(true);
+    try {
       const tokenAObj = getToken(tokenA);
       const tokenBObj = getToken(tokenB);
 
-      if (tokenAObj.isNative || tokenBObj.isNative) {
-        throw new Error("For this demo, please select two ERC20 tokens (e.g., USDC to USDT)");
-      }
-
-      const spender = DEX_ROUTER_ADDRESS.replace("0x", "").padStart(64, "0");
-      const maxAmount = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
-      const approveSelector = "0x095ea7b3";
-      const approveData = approveSelector + spender + maxAmount;
-
-      // Fonction dial Pause (kat-tsnna l-blockchain)
-      const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
-
-      // 1. APPROVE TOKEN A
-      toast.info(`Approving ${tokenAObj.symbol}...`, { description: "Please confirm in your wallet." });
-      await (window as any).ethereum.request({
-        method: 'eth_sendTransaction',
-        params: [{ from: profile.wallet_address, to: tokenAObj.address, data: approveData }]
-      });
-      
-      toast.loading(`Waiting for ${tokenAObj.symbol} approval to be mined...`);
-      await delay(6000); // Kan-tsnaw 6 tawanio
-
-      // 2. APPROVE TOKEN B
-      toast.info(`Approving ${tokenBObj.symbol}...`, { description: "Please confirm in your wallet." });
-      await (window as any).ethereum.request({
-        method: 'eth_sendTransaction',
-        params: [{ from: profile.wallet_address, to: tokenBObj.address, data: approveData }]
-      });
-
-      toast.loading(`Waiting for ${tokenBObj.symbol} approval to be mined...`);
-      await delay(6000); // Kan-tsnaw 6 tawanio
-
-      // 3. ADD LIQUIDITY (Daba l-contract 3ndo s-sala7iya 100%)
       toast.info("Adding Liquidity...", { description: "Final confirmation in your wallet." });
 
-      const funcSelector = "0xcf6c62ea"; // Add Liquidity Selector
+      const funcSelector = "0xcf6c62ea"; 
 
       const amountAHex = BigInt(parseFloat(amountA) * (10 ** (tokenAObj.decimals || 18))).toString(16);
       const amountBHex = BigInt(parseFloat(amountB) * (10 ** (tokenBObj.decimals || 18))).toString(16);
@@ -614,11 +616,13 @@ const handleAddLiquidity = async () => {
       setShowAdd(false);
       setAmountA("");
       setAmountB("");
+      setApprovedA(false);
+      setApprovedB(false);
     } catch (e: any) {
       console.error(e);
       toast.error("Transaction Failed", { description: e.message });
     } finally {
-      setIsApproving(false);
+      setIsAdding(false);
     }
   };
 
@@ -664,9 +668,23 @@ const handleAddLiquidity = async () => {
              ) : !amountA || !amountB ? (
                 <button disabled className="w-full h-14 rounded-2xl text-[16px] font-semibold bg-secondary text-muted-foreground cursor-not-allowed">Enter amounts</button>
              ) : (
-                <button onClick={handleAddLiquidity} disabled={isApproving} className="w-full h-14 rounded-2xl text-[16px] font-semibold bg-primary text-primary-foreground hover:brightness-110 flex justify-center items-center gap-2 transition-all">
-                  {isApproving && <Loader2 className="h-5 w-5 animate-spin" />} Approve & Add
-                </button>
+                <div className="flex gap-3">
+                  {!approvedA && (
+                    <button onClick={() => handleApprove(tokenA, true)} disabled={isApprovingA} className="flex-1 h-14 rounded-2xl text-[15px] font-semibold bg-primary text-primary-foreground hover:brightness-110 flex justify-center items-center gap-2 transition-all shadow-[var(--shadow-glow)]">
+                      {isApprovingA && <Loader2 className="h-4 w-4 animate-spin" />} Approve {tokenA}
+                    </button>
+                  )}
+                  {!approvedB && (
+                    <button onClick={() => handleApprove(tokenB, false)} disabled={isApprovingB} className="flex-1 h-14 rounded-2xl text-[15px] font-semibold bg-primary text-primary-foreground hover:brightness-110 flex justify-center items-center gap-2 transition-all shadow-[var(--shadow-glow)]">
+                      {isApprovingB && <Loader2 className="h-4 w-4 animate-spin" />} Approve {tokenB}
+                    </button>
+                  )}
+                  {approvedA && approvedB && (
+                    <button onClick={handleAddLiquidity} disabled={isAdding} className="btn-silver w-full h-14 rounded-2xl text-[16px] font-semibold tracking-tight flex justify-center items-center gap-2">
+                      {isAdding && <Loader2 className="h-5 w-5 animate-spin" />} Add Liquidity
+                    </button>
+                  )}
+                </div>
              )}
           </div>
         </div>
