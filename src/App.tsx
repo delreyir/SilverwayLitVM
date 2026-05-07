@@ -18,7 +18,7 @@ const LITVM_NETWORK_PARAMS = {
   blockExplorerUrls: ["https://liteforge.explorer.caldera.xyz"],
 };
 
-// L-Adresse dial Universal Router l-jdid lli saybti f Remix
+// L-Adresse dial Universal Router
 const DEX_ROUTER_ADDRESS = "0x644Bae19C0b65D733A48a0C1EAA45C49559Bdd5A"; 
 
 export const TOKEN_REGISTRY = [
@@ -41,7 +41,26 @@ const POOLS = [
 const STATS = { tvl: 15200000, volume24h: 3400000, trades24h: 12450, pairs: 24 };
 
 /* =====================================================================
-   2. WALLET CONTEXT & HOOKS (GLOBAL STATE)
+   UTILS (HEX & PADDING)
+   ===================================================================== */
+// Fonction m-jhda kat-7el l-mochkil dial Javascript Floating Point Math
+const toHexAmount = (valStr: string, decimals: number) => {
+  try {
+    if (!valStr || isNaN(Number(valStr))) return "0";
+    const parts = valStr.toString().split(".");
+    let intPart = parts[0] || "0";
+    let fracPart = parts[1] || "";
+    if (fracPart.length > decimals) fracPart = fracPart.slice(0, decimals);
+    else fracPart = fracPart.padEnd(decimals, "0");
+    return BigInt(intPart + fracPart).toString(16);
+  } catch (e) { return "0"; }
+};
+
+const pad32 = (str: string) => str.replace("0x", "").padStart(64, "0");
+const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+/* =====================================================================
+   2. WALLET CONTEXT & HOOKS
    ===================================================================== */
 const WalletContext = createContext<any>(null);
 
@@ -138,7 +157,6 @@ export const useTokenBalance = (symbol: string, userAddress?: string | null) => 
   return { balance, loading };
 };
 
-// FAUCET LOGIC WITH NETWORK CHECK
 export const useMintToken = () => {
   const [minting, setMinting] = useState<string | null>(null);
   
@@ -163,7 +181,7 @@ export const useMintToken = () => {
       const amountToMint = symbol === "WBTC" || symbol === "WETH" ? "1" : "1000";
       toast.info(`Minting ${amountToMint} ${symbol}...`, { description: "Confirm in your wallet." });
       
-      const dataPayload = "0x40c10f19" + userAddress.replace("0x", "").padStart(64, "0") + (BigInt(amountToMint) * (BigInt(10) ** BigInt(decimals))).toString(16).padStart(64, "0");
+      const dataPayload = "0x40c10f19" + pad32(userAddress) + pad32(toHexAmount(amountToMint, decimals));
       
       await (window as any).ethereum.request({ method: 'eth_sendTransaction', params: [{ from: userAddress, to: tokenAddress, data: dataPayload }] });
       
@@ -194,7 +212,7 @@ const DropdownMenuSeparator = () => <div className="h-px bg-border/50 mx-2 my-1"
 
 const Dialog = ({ open, onOpenChange, children }: any) => <>{React.Children.map(children, child => React.cloneElement(child, { open, onOpenChange }))}</>;
 const DialogTrigger = ({ children, onOpenChange }: any) => React.cloneElement(children, { onClick: () => onOpenChange(true) });
-const DialogContent = ({ children, open, onOpenChange, className }: any) => { if (!open) return null; return <div className="fixed inset-0 z-[60] bg-background/80 backdrop-blur-sm flex items-center justify-center p-4"><div className={`w-full max-w-md panel border border-border/80 p-6 shadow-[var(--shadow-elevated)] animate-fade-up relative ${className}`}><button onClick={() => onOpenChange(false)} className="absolute right-4 top-4 text-muted-foreground hover:text-foreground">X</button>{children}</div></div>; };
+const DialogContent = ({ children, open, onOpenChange, className }: any) => { if (!open) return null; return <div className="fixed inset-0 z-[60] bg-background/80 backdrop-blur-sm flex items-center justify-center p-4"><div className={`w-full max-w-md panel border border-border/80 p-6 shadow-[var(--shadow-elevated)] animate-fade-up relative ${className}`}>{children}</div></div>; };
 const DialogTitle = ({ children }: any) => <h2 className="text-lg font-semibold tracking-tight mb-4">{children}</h2>;
 const Input = ({ className, ...props }: any) => <input className={`flex h-10 w-full rounded-xl border border-border/50 bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-border transition-colors ${className}`} {...props} />;
 
@@ -324,7 +342,8 @@ const TokenSelect = ({ value, onChange, exclude }: any) => {
         </button>
       </DialogTrigger>
       <DialogContent className="!p-0 border-border/80 panel overflow-hidden w-full max-w-sm">
-        <div className="p-4 border-b border-border/50">
+        <button onClick={() => setOpen(false)} className="absolute right-4 top-4 z-10 text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        <div className="p-4 border-b border-border/50 pt-10">
           <DialogTitle>Select a token</DialogTitle>
           <div className="relative mt-2">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -388,23 +407,35 @@ const SwapCard = () => {
   const flip = () => { setFrom(to); setTo(from); setAmount(output || ""); };
   const isWrongNetwork = profile?.chain_id && profile.chain_id !== LITVM_CHAIN_ID;
 
-  // 1. APPROVE LOGIC
+  // 1. APPROVE LOGIC (Exact Amount)
   const handleApprove = async () => {
     setApproving(true);
     try {
       if (!fromToken.address) throw new Error("Native token doesn't need approval");
+      if (!amount || parseFloat(amount) <= 0) throw new Error("Enter an amount first");
+
+      const spender = DEX_ROUTER_ADDRESS.replace("0x", "").padStart(64, "0");
+      const hexAmount = toHexAmount(amount, fromToken.decimals || 18);
+      const txData = "0x095ea7b3" + spender + pad32(hexAmount);
+
       toast.info(`Approving ${fromToken.symbol}...`, { description: "Please confirm in your wallet." });
       
-      const funcSelector = "0x095ea7b3";
-      const spender = DEX_ROUTER_ADDRESS.replace("0x", "").padStart(64, "0");
-      const maxAmount = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
-      const txData = funcSelector + spender + maxAmount;
-
-      await (window as any).ethereum.request({
+      const txHash = await (window as any).ethereum.request({
         method: 'eth_sendTransaction',
         params: [{ from: profile.wallet_address, to: fromToken.address, data: txData }]
       });
 
+      const toastId = toast.loading(`Waiting for ${fromToken.symbol} approval to be mined...`);
+      let receipt = null;
+      while (receipt === null) {
+        await delay(3000);
+        receipt = await (window as any).ethereum.request({ method: 'eth_getTransactionReceipt', params: [txHash] });
+      }
+
+      toast.loading("Syncing with LitVM nodes...", { id: toastId });
+      await delay(5000);
+
+      toast.dismiss(toastId);
       setIsApproved(true);
       toast.success(`${fromToken.symbol} Approved!`, { description: "You can now proceed to swap." });
     } catch (e: any) { 
@@ -425,15 +456,11 @@ const SwapCard = () => {
       
       const funcSelector = "0x8e18cdfc"; // Swap Tokens Selector
 
-      const amountInHex = BigInt(parseFloat(amount) * (10 ** fromToken.decimals)).toString(16);
-      const amountOutHex = BigInt(parseFloat(output) * (10 ** toToken.decimals)).toString(16);
-
-      const pad32 = (str: string) => str.replace("0x", "").padStart(64, "0");
       const txData = funcSelector 
         + pad32(fromToken.address!) 
         + pad32(toToken.address!) 
-        + pad32(amountInHex) 
-        + pad32(amountOutHex);
+        + pad32(toHexAmount(amount, fromToken.decimals || 18)) 
+        + pad32(toHexAmount(output, toToken.decimals || 18));
 
       await (window as any).ethereum.request({
         method: 'eth_sendTransaction',
@@ -442,6 +469,7 @@ const SwapCard = () => {
 
       toast.success("Swap Confirmed!", { description: `Received ${output} ${to}` });
       setAmount("");
+      setIsApproved(false);
     } catch (e: any) { 
       console.error(e); toast.error("Swap failed", { description: e.message }); 
     } finally { 
@@ -533,7 +561,7 @@ const SwapCard = () => {
 };
 
 /* =====================================================================
-   5. OTHER PAGES (REAL ADD LIQUIDITY PRO UX)
+   5. OTHER PAGES (REAL ADD LIQUIDITY PRO UX - FIX)
    ===================================================================== */
 const Pools = () => {
   const { isConnected, connect, profile } = useWalletAuth();
@@ -558,40 +586,43 @@ const Pools = () => {
 
   const fmt = (n: number) => (n >= 1e6 ? `$${(n / 1e6).toFixed(2)}M` : `$${(n / 1e3).toFixed(1)}K`);
 
-const handleApprove = async (tokenSymbol: string, isTokenA: boolean) => {
+  const handleApprove = async (tokenSymbol: string, isTokenA: boolean) => {
     const setApp = isTokenA ? setIsApprovingA : setIsApprovingB;
     const setDone = isTokenA ? setApprovedA : setApprovedB;
     const tokenObj = getToken(tokenSymbol);
+    const amountVal = isTokenA ? amountA : amountB;
+
+    if (!amountVal || parseFloat(amountVal) <= 0) {
+      return toast.error("Please enter an amount to approve.");
+    }
 
     setApp(true);
     try {
       const spender = DEX_ROUTER_ADDRESS.replace("0x", "").padStart(64, "0");
-      const maxAmount = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
-      const txData = "0x095ea7b3" + spender + maxAmount;
+      const hexAmount = toHexAmount(amountVal, tokenObj.decimals || 18);
+      const txData = "0x095ea7b3" + spender + pad32(hexAmount);
 
       toast.info(`Approving ${tokenObj.symbol}...`, { description: "Please confirm in your wallet." });
       
-      // 1. Sifet l-Transaction l-MetaMask
       const txHash = await (window as any).ethereum.request({
         method: 'eth_sendTransaction',
         params: [{ from: profile.wallet_address, to: tokenObj.address, data: txData }]
       });
       
-      // 2. L-7EL L-JDID: N-b9aw n-swlou l-Blockchain wach d-sjjlat b sse7
       const toastId = toast.loading(`Waiting for ${tokenObj.symbol} to be mined on LitVM...`);
       
       let receipt = null;
       while (receipt === null) {
-        await new Promise(r => setTimeout(r, 3000)); // N-tsnaw 3 tawanio 3ad n-swlou 3awtani
-        receipt = await (window as any).ethereum.request({
-          method: 'eth_getTransactionReceipt',
-          params: [txHash],
-        });
+        await delay(3000);
+        receipt = await (window as any).ethereum.request({ method: 'eth_getTransactionReceipt', params: [txHash] });
       }
 
+      toast.loading("Syncing with LitVM nodes...", { id: toastId });
+      await delay(5000); // Wait for nodes to sync
+
       toast.dismiss(toastId);
-      toast.success(`${tokenObj.symbol} Approved 100%!`);
-      setDone(true); // Daba mt2kdin 1000% bli raha approved 3ad n-biyenou l-boutona jaya
+      toast.success(`${tokenObj.symbol} Approved!`);
+      setDone(true);
     } catch (e: any) {
       console.error(e);
       toast.error(`Approval failed for ${tokenObj.symbol}`);
@@ -609,17 +640,12 @@ const handleApprove = async (tokenSymbol: string, isTokenA: boolean) => {
       toast.info("Adding Liquidity...", { description: "Final confirmation in your wallet." });
 
       const funcSelector = "0xcf6c62ea"; 
-
-      const amountAHex = BigInt(parseFloat(amountA) * (10 ** (tokenAObj.decimals || 18))).toString(16);
-      const amountBHex = BigInt(parseFloat(amountB) * (10 ** (tokenBObj.decimals || 18))).toString(16);
-
-      const pad32 = (str: string) => str.replace("0x", "").padStart(64, "0");
       
       const txData = funcSelector 
         + pad32(tokenAObj.address!) 
         + pad32(tokenBObj.address!) 
-        + pad32(amountAHex) 
-        + pad32(amountBHex);
+        + pad32(toHexAmount(amountA, tokenAObj.decimals || 18)) 
+        + pad32(toHexAmount(amountB, tokenBObj.decimals || 18));
 
       await (window as any).ethereum.request({
         method: 'eth_sendTransaction',
