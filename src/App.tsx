@@ -445,7 +445,7 @@ const SwapCard = () => {
       let txData = ""; let txValue = "0x0";
 
       if (from === "zkLTC") {
-        txData = "0xb6f9de95"; 
+        txData = "0x8e18cdfc"; 
         txValue = "0x" + BigInt(parseFloat(amount) * 1e18).toString(16);
       } else {
         const amountInUnits = BigInt(parseFloat(amount) * 1e6).toString(16);
