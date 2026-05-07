@@ -566,12 +566,18 @@ const handleAddLiquidity = async () => {
       const approveSelector = "0x095ea7b3";
       const approveData = approveSelector + spender + maxAmount;
 
+      // Fonction dial Pause (kat-tsnna l-blockchain)
+      const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+
       // 1. APPROVE TOKEN A
       toast.info(`Approving ${tokenAObj.symbol}...`, { description: "Please confirm in your wallet." });
       await (window as any).ethereum.request({
         method: 'eth_sendTransaction',
         params: [{ from: profile.wallet_address, to: tokenAObj.address, data: approveData }]
       });
+      
+      toast.loading(`Waiting for ${tokenAObj.symbol} approval to be mined...`);
+      await delay(6000); // Kan-tsnaw 6 tawanio
 
       // 2. APPROVE TOKEN B
       toast.info(`Approving ${tokenBObj.symbol}...`, { description: "Please confirm in your wallet." });
@@ -580,7 +586,10 @@ const handleAddLiquidity = async () => {
         params: [{ from: profile.wallet_address, to: tokenBObj.address, data: approveData }]
       });
 
-      // 3. ADD LIQUIDITY (L-Transaction L-Kkbira)
+      toast.loading(`Waiting for ${tokenBObj.symbol} approval to be mined...`);
+      await delay(6000); // Kan-tsnaw 6 tawanio
+
+      // 3. ADD LIQUIDITY (Daba l-contract 3ndo s-sala7iya 100%)
       toast.info("Adding Liquidity...", { description: "Final confirmation in your wallet." });
 
       const funcSelector = "0xcf6c62ea"; // Add Liquidity Selector
