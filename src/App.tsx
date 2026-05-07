@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, createContext, useContext } from "
 import { 
   ArrowUpRight, Wallet, LogOut, Copy, Check, ChevronDown, 
   Search, ArrowDown, Settings2, Loader2, Droplets, Activity, 
-  Repeat, TrendingUp, Plus, Zap, ArrowRight 
+  Repeat, TrendingUp, Plus, Zap, ArrowRight, X 
 } from "lucide-react";
 import { Toaster, toast } from "sonner";
 
@@ -15,7 +15,7 @@ const LITVM_NETWORK_PARAMS = {
   chainName: "LitVM LiteForge",
   nativeCurrency: { name: "LitVM", symbol: "zkLTC", decimals: 18 },
   rpcUrls: ["https://liteforge.rpc.caldera.xyz/http"],
-  blockExplorerUrls: ["https://liteffzorge.explorer.caldera.xyz"],
+  blockExplorerUrls: ["https://liteforge.explorer.caldera.xyz"],
 };
 
 // ⚠️ Hada l-adresse dial Router mo2a9at bach t9bel lik MetaMask transaction
@@ -26,6 +26,9 @@ export const TOKEN_REGISTRY = [
   { symbol: "USDC", name: "USD Coin", priceUsd: 1.00, icon: "$", isNative: false, address: "0x6fefE517cAe9924EE3eFbd9423Fd707d55ED3bcA", decimals: 6 },
   { symbol: "LVM", name: "LitVM Token", priceUsd: 2.30, icon: "V", isNative: false, address: "0xEDEB8183aCd8D93a0E0604c7AD5EdABBA71c45a6", decimals: 18 },
   { symbol: "WBTC", name: "Wrapped Bitcoin", priceUsd: 64200.00, icon: "₿", isNative: false, address: "0x127Dc73f26D2DA4b6663e71C7Bd5120c77d68AA2", decimals: 8 },
+  // Zedt WETH w USDT lli deployiti!
+  { symbol: "WETH", name: "Wrapped Ethereum", priceUsd: 3100.00, icon: "Ξ", isNative: false, address: "0xE5fb1Fb0915308cbeEE6443A58225A4B3DAeEe40", decimals: 18 },
+  { symbol: "USDT", name: "Tether USD", priceUsd: 1.00, icon: "₮", isNative: false, address: "0xe5F7624eC757187a3cb89e55dc33eBdd39fF1662", decimals: 6 },
 ];
 
 export const getToken = (sym: string) => TOKEN_REGISTRY.find((t) => t.symbol === sym) || TOKEN_REGISTRY[0];
@@ -33,7 +36,7 @@ export const getToken = (sym: string) => TOKEN_REGISTRY.find((t) => t.symbol ===
 const POOLS = [
   { pair: ["zkLTC", "USDC"], fee: 0.3, tvl: 8500000, volume24h: 2100000, apr: 12.5 },
   { pair: ["LVM", "zkLTC"], fee: 0.3, tvl: 4200000, volume24h: 800000, apr: 24.2 },
-  { pair: ["WBTC", "zkLTC"], fee: 0.3, tvl: 2500000, volume24h: 500000, apr: 8.4 }
+  { pair: ["WETH", "USDT"], fee: 0.3, tvl: 2500000, volume24h: 500000, apr: 8.4 }
 ];
 
 const STATS = { tvl: 15200000, volume24h: 3400000, trades24h: 12450, pairs: 24 };
@@ -141,7 +144,7 @@ export const useMintToken = () => {
   const mint = async (symbol: string, tokenAddress: string, decimals: number, userAddress: string) => {
     try {
       setMinting(symbol);
-      const amountToMint = symbol === "WBTC" ? "1" : "1000";
+      const amountToMint = symbol === "WBTC" || symbol === "WETH" ? "1" : "1000";
       toast.info(`Minting ${amountToMint} ${symbol}...`);
       const dataPayload = "0x40c10f19" + userAddress.replace("0x", "").padStart(64, "0") + (BigInt(amountToMint) * (BigInt(10) ** BigInt(decimals))).toString(16).padStart(64, "0");
       await (window as any).ethereum.request({ method: 'eth_sendTransaction', params: [{ from: userAddress, to: tokenAddress, data: dataPayload }] });
@@ -277,7 +280,7 @@ const Header = () => {
 };
 
 /* =====================================================================
-   🔥 PRO SWAP COMPONENT (B7AL L-79I9I 100%)
+   🔥 PRO SWAP & POOLS COMPONENTS 
    ===================================================================== */
 const TokenSelect = ({ value, onChange, exclude }: any) => {
   const [open, setOpen] = useState(false);
@@ -367,7 +370,7 @@ const SwapCard = () => {
 
   const isWrongNetwork = profile?.chain_id && profile.chain_id !== LITVM_CHAIN_ID;
 
-  // 1. APPROVE LOGIC (REAL METAMASK TX)
+  // 1. APPROVE LOGIC
   const handleApprove = async () => {
     setApproving(true);
     try {
@@ -375,7 +378,6 @@ const SwapCard = () => {
       
       toast.info(`Approving ${fromToken.symbol}...`, { description: "Please confirm in your wallet." });
       
-      // ERC20 approve(address spender, uint256 amount)
       const funcSelector = "0x095ea7b3";
       const spender = DEX_ROUTER_ADDRESS.replace("0x", "").padStart(64, "0");
       const maxAmount = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
@@ -383,58 +385,43 @@ const SwapCard = () => {
 
       await (window as any).ethereum.request({
         method: 'eth_sendTransaction',
-        params: [{
-          from: profile.wallet_address,
-          to: fromToken.address, 
-          data: txData
-        }]
+        params: [{ from: profile.wallet_address, to: fromToken.address, data: txData }]
       });
 
       setIsApproved(true);
       toast.success(`${fromToken.symbol} Approved!`, { description: "You can now proceed to swap." });
     } catch (e: any) { 
-      console.error(e);
-      toast.error("Approval failed", { description: e.message }); 
+      console.error(e); toast.error("Approval failed", { description: e.message }); 
     } finally { 
       setApproving(false); 
     }
   };
 
-// 2. SWAP LOGIC (REAL BLOCKCHAIN TX)
+  // 2. SWAP LOGIC
   const handleSwap = async () => {
     setSwapping(true);
     try {
       toast.info(`Swapping ${amount} ${from} for ${to}...`, { description: "Please confirm in your wallet." });
       
-      let txData = "";
-      let txValue = "0x0";
+      let txData = ""; let txValue = "0x0";
 
       if (from === "zkLTC") {
-        // Swap zkLTC to USDC (Function selector for `swapExactETHForTokens()`)
         txData = "0xb6f9de95"; 
         txValue = "0x" + BigInt(parseFloat(amount) * 1e18).toString(16);
       } else {
-        // Swap USDC to zkLTC (Function selector for `swapExactTokensForETH(uint256)`)
-        // Hada houwa l-koud li jbti nta mn l-Error dial MetaMask!
         const amountInUnits = BigInt(parseFloat(amount) * 1e6).toString(16);
         txData = "0x7f92c8a6" + amountInUnits.padStart(64, "0");
       }
 
       await (window as any).ethereum.request({
         method: 'eth_sendTransaction',
-        params: [{
-          from: profile.wallet_address,
-          to: DEX_ROUTER_ADDRESS,
-          value: txValue, 
-          data: txData 
-        }]
+        params: [{ from: profile.wallet_address, to: DEX_ROUTER_ADDRESS, value: txValue, data: txData }]
       });
 
       toast.success("Swap Confirmed!", { description: `Received ${output} ${to}` });
       setAmount("");
     } catch (e: any) { 
-      console.error(e);
-      toast.error("Swap failed", { description: e.message }); 
+      console.error(e); toast.error("Swap failed", { description: e.message }); 
     } finally { 
       setSwapping(false); 
     }
@@ -445,7 +432,6 @@ const SwapCard = () => {
       <div className="absolute -inset-px rounded-[32px] bg-gradient-to-b from-foreground/[0.08] via-transparent to-transparent" />
       <div className="relative panel rounded-[32px] p-2 bg-card">
         
-        {/* Header */}
         <div className="flex items-center justify-between px-4 py-3">
           <h2 className="font-semibold text-lg tracking-tight">Swap</h2>
           <div className="flex items-center gap-1 p-1 rounded-full bg-secondary/60 border border-border/50">
@@ -458,7 +444,6 @@ const SwapCard = () => {
           </div>
         </div>
 
-        {/* PAY Section */}
         <div className="rounded-3xl bg-secondary/30 border border-border/40 p-4 pb-5 transition-colors hover:bg-secondary/50">
           <div className="flex justify-between text-[12px] font-medium text-muted-foreground mb-3">
             <span>You pay</span>
@@ -474,14 +459,12 @@ const SwapCard = () => {
           <div className="text-[12px] text-muted-foreground mt-2 font-mono">${usdValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
         </div>
 
-        {/* Flip Button */}
         <div className="flex justify-center -my-3.5 relative z-10">
           <button onClick={flip} className="h-10 w-10 rounded-2xl bg-card border-[4px] border-background hover:bg-secondary transition-all duration-300 flex items-center justify-center text-foreground hover:text-primary">
             <ArrowDown className="h-4 w-4" />
           </button>
         </div>
 
-        {/* RECEIVE Section */}
         <div className="rounded-3xl bg-secondary/30 border border-border/40 p-4 pb-5 transition-colors hover:bg-secondary/50">
           <div className="flex justify-between text-[12px] font-medium text-muted-foreground mb-3">
             <span>You receive</span>
@@ -494,43 +477,21 @@ const SwapCard = () => {
           <div className="text-[12px] text-muted-foreground mt-2 font-mono">${(parsedAmount * toPrice).toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
         </div>
 
-        {/* Real DEX Route Info */}
         {amount && parsedAmount > 0 && (
           <div className="mt-3 mx-2 p-3 rounded-2xl border border-border/40 bg-secondary/10 space-y-2.5 text-[12px] font-medium">
-            <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">Rate</span>
-              <span>1 {from} = {fallbackRate.toFixed(4)} {to}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">Price Impact</span>
-              <span className={`${parseFloat(priceImpact) > 1 ? 'text-destructive' : 'text-success'}`}>{priceImpact}%</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">Minimum Received</span>
-              <span>{minReceived} {to}</span>
-            </div>
+            <div className="flex justify-between items-center"><span className="text-muted-foreground">Rate</span><span>1 {from} = {fallbackRate.toFixed(4)} {to}</span></div>
+            <div className="flex justify-between items-center"><span className="text-muted-foreground">Price Impact</span><span className={`${parseFloat(priceImpact) > 1 ? 'text-destructive' : 'text-success'}`}>{priceImpact}%</span></div>
+            <div className="flex justify-between items-center"><span className="text-muted-foreground">Minimum Received</span><span>{minReceived} {to}</span></div>
             <div className="hairline my-1 opacity-50" />
-            <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">Network Fee</span>
-              <span className="text-muted-foreground flex items-center gap-1"><Zap className="h-3 w-3 text-warning"/> ~ $0.01</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">Route</span>
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <TokenIcon symbol={from} size={14}/> {from} <ArrowRight className="h-3 w-3"/> <TokenIcon symbol={to} size={14}/> {to}
-              </span>
-            </div>
+            <div className="flex justify-between items-center"><span className="text-muted-foreground">Network Fee</span><span className="text-muted-foreground flex items-center gap-1"><Zap className="h-3 w-3 text-warning"/> ~ $0.01</span></div>
           </div>
         )}
 
-        {/* Action Button */}
         <div className="mt-3">
           {!isConnected ? (
             <button onClick={connect} className="btn-silver w-full h-14 rounded-2xl text-[16px] font-semibold tracking-tight">Connect Wallet</button>
           ) : isWrongNetwork ? (
-            <button onClick={() => switchNetwork(LITVM_CHAIN_ID, LITVM_NETWORK_PARAMS)} className="w-full h-14 rounded-2xl text-[16px] font-semibold bg-destructive text-destructive-foreground hover:opacity-90 transition-opacity">
-              Switch to LitVM
-            </button>
+            <button onClick={() => switchNetwork(LITVM_CHAIN_ID, LITVM_NETWORK_PARAMS)} className="w-full h-14 rounded-2xl text-[16px] font-semibold bg-destructive text-destructive-foreground hover:opacity-90 transition-opacity">Switch to LitVM</button>
           ) : !amount || parsedAmount <= 0 ? (
             <button disabled className="w-full h-14 rounded-2xl text-[16px] font-semibold bg-secondary text-muted-foreground cursor-not-allowed">Enter an amount</button>
           ) : !isApproved ? (
@@ -550,15 +511,91 @@ const SwapCard = () => {
 };
 
 /* =====================================================================
-   5. OTHER PAGES
+   5. OTHER PAGES (MODIFIED POOLS WITH NEW STATES)
    ===================================================================== */
 const Pools = () => {
+  const { isConnected, connect, profile } = useWalletAuth();
+  const [showAdd, setShowAdd] = useState(false);
+  const [tokenA, setTokenA] = useState("WETH");
+  const [tokenB, setTokenB] = useState("USDT");
+  const [amountA, setAmountA] = useState("");
+  const [amountB, setAmountB] = useState("");
+  const [isApproving, setIsApproving] = useState(false);
+
+  const { balance: balA } = useTokenBalance(tokenA, profile?.wallet_address);
+  const { balance: balB } = useTokenBalance(tokenB, profile?.wallet_address);
+
   const fmt = (n: number) => (n >= 1e6 ? `$${(n / 1e6).toFixed(2)}M` : `$${(n / 1e3).toFixed(1)}K`);
+
+  const handleAddLiquidity = async () => {
+    setIsApproving(true);
+    toast.info("Approving Tokens...", { description: "Please confirm in wallet." });
+    setTimeout(() => {
+      toast.success("Liquidity Added!");
+      setIsApproving(false);
+      setShowAdd(false);
+      setAmountA("");
+      setAmountB("");
+    }, 2000); // 💡 Mock logic for now, we will replace this with real contract call later
+  };
+
+  if (showAdd) {
+    return (
+      <div className="relative w-full max-w-[460px] mx-auto animate-fade-up mt-8">
+        <div className="absolute -inset-px rounded-[32px] bg-gradient-to-b from-foreground/[0.08] via-transparent to-transparent" />
+        <div className="relative panel rounded-[32px] p-2 bg-card">
+          <div className="flex items-center justify-between px-4 py-3">
+            <h2 className="font-semibold text-lg tracking-tight">Add Liquidity</h2>
+            <button onClick={() => setShowAdd(false)} className="p-1.5 rounded-full text-muted-foreground hover:text-foreground transition-colors bg-secondary/60 border border-border/50"><X className="h-4 w-4" /></button>
+          </div>
+
+          <div className="rounded-3xl bg-secondary/30 border border-border/40 p-4 pb-5 transition-colors hover:bg-secondary/50 mb-2">
+            <div className="flex justify-between text-[12px] font-medium text-muted-foreground mb-3">
+              <span>Deposit</span><span>Balance: {parseFloat(balA).toFixed(4)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <input type="number" value={amountA} onChange={(e) => setAmountA(e.target.value)} placeholder="0.0" className="w-1/2 bg-transparent text-[40px] font-semibold tracking-tight outline-none placeholder:text-muted-foreground/30 text-foreground" />
+              <TokenSelect value={tokenA} onChange={setTokenA} exclude={tokenB} />
+            </div>
+          </div>
+
+          <div className="flex justify-center -my-4 relative z-10">
+            <div className="h-10 w-10 rounded-2xl bg-card border-[4px] border-background flex items-center justify-center text-muted-foreground">
+              <Plus className="h-4 w-4" />
+            </div>
+          </div>
+
+          <div className="rounded-3xl bg-secondary/30 border border-border/40 p-4 pb-5 transition-colors hover:bg-secondary/50">
+            <div className="flex justify-between text-[12px] font-medium text-muted-foreground mb-3">
+              <span>Deposit</span><span>Balance: {parseFloat(balB).toFixed(4)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <input type="number" value={amountB} onChange={(e) => setAmountB(e.target.value)} placeholder="0.0" className="w-1/2 bg-transparent text-[40px] font-semibold tracking-tight outline-none placeholder:text-muted-foreground/30 text-foreground" />
+              <TokenSelect value={tokenB} onChange={setTokenB} exclude={tokenA} />
+            </div>
+          </div>
+
+          <div className="mt-3">
+             {!isConnected ? (
+                <button onClick={connect} className="btn-silver w-full h-14 rounded-2xl text-[16px] font-semibold tracking-tight">Connect Wallet</button>
+             ) : !amountA || !amountB ? (
+                <button disabled className="w-full h-14 rounded-2xl text-[16px] font-semibold bg-secondary text-muted-foreground cursor-not-allowed">Enter amounts</button>
+             ) : (
+                <button onClick={handleAddLiquidity} disabled={isApproving} className="w-full h-14 rounded-2xl text-[16px] font-semibold bg-primary text-primary-foreground hover:brightness-110 flex justify-center items-center gap-2 transition-all">
+                  {isApproving && <Loader2 className="h-5 w-5 animate-spin" />} Approve & Add
+                </button>
+             )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full max-w-5xl mx-auto animate-fade-up">
       <div className="flex items-end justify-between mb-8 flex-wrap gap-4">
         <div><h2 className="text-[clamp(2rem,4vw,3rem)] font-semibold tracking-[-0.035em]">Liquidity</h2><p className="text-muted-foreground text-sm mt-1">Earn fees by providing liquidity.</p></div>
-        <button className="btn-silver h-10 px-4 rounded-full text-[13px] font-medium inline-flex items-center gap-1.5"><Plus className="h-4 w-4" /> New position</button>
+        <button onClick={() => setShowAdd(true)} className="btn-silver h-10 px-4 rounded-full text-[13px] font-medium inline-flex items-center gap-1.5"><Plus className="h-4 w-4" /> New position</button>
       </div>
       <div className="panel rounded-3xl overflow-hidden border-border/40">
         <div className="hidden md:grid grid-cols-12 px-6 py-4 text-[11px] uppercase tracking-wider text-muted-foreground font-mono border-b border-border/40 bg-secondary/20">
