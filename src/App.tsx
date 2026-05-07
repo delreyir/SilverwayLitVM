@@ -558,7 +558,7 @@ const Pools = () => {
 
   const fmt = (n: number) => (n >= 1e6 ? `$${(n / 1e6).toFixed(2)}M` : `$${(n / 1e3).toFixed(1)}K`);
 
-  const handleApprove = async (tokenSymbol: string, isTokenA: boolean) => {
+const handleApprove = async (tokenSymbol: string, isTokenA: boolean) => {
     const setApp = isTokenA ? setIsApprovingA : setIsApprovingB;
     const setDone = isTokenA ? setApprovedA : setApprovedB;
     const tokenObj = getToken(tokenSymbol);
@@ -571,13 +571,18 @@ const Pools = () => {
 
       toast.info(`Approving ${tokenObj.symbol}...`, { description: "Please confirm in your wallet." });
       
+      // 1. Kan-sifto l-transaction
       await (window as any).ethereum.request({
         method: 'eth_sendTransaction',
         params: [{ from: profile.wallet_address, to: tokenObj.address, data: txData }]
       });
       
+      // 2. L-7EL HOUWA HADA: N-tsnaw l-Blockchain 8 tawanio
+      toast.loading(`Waiting for ${tokenObj.symbol} to be mined on LitVM...`);
+      await new Promise(resolve => setTimeout(resolve, 8000));
+
       toast.success(`${tokenObj.symbol} Approved!`);
-      setDone(true);
+      setDone(true); // 3ad kat-ban l-boutona jdida
     } catch (e: any) {
       console.error(e);
       toast.error(`Approval failed for ${tokenObj.symbol}`);
