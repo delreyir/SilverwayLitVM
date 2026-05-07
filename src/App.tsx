@@ -549,7 +549,7 @@ const Pools = () => {
 
   const fmt = (n: number) => (n >= 1e6 ? `$${(n / 1e6).toFixed(2)}M` : `$${(n / 1e3).toFixed(1)}K`);
 
-  const handleAddLiquidity = async () => {
+const handleAddLiquidity = async () => {
     setIsApproving(true);
     try {
       if (!profile?.wallet_address) throw new Error("Connect wallet first!");
@@ -561,7 +561,27 @@ const Pools = () => {
         throw new Error("For this demo, please select two ERC20 tokens (e.g., USDC to USDT)");
       }
 
-      toast.info("Adding Liquidity...", { description: "Please confirm in your wallet." });
+      const spender = DEX_ROUTER_ADDRESS.replace("0x", "").padStart(64, "0");
+      const maxAmount = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+      const approveSelector = "0x095ea7b3";
+      const approveData = approveSelector + spender + maxAmount;
+
+      // 1. APPROVE TOKEN A
+      toast.info(`Approving ${tokenAObj.symbol}...`, { description: "Please confirm in your wallet." });
+      await (window as any).ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{ from: profile.wallet_address, to: tokenAObj.address, data: approveData }]
+      });
+
+      // 2. APPROVE TOKEN B
+      toast.info(`Approving ${tokenBObj.symbol}...`, { description: "Please confirm in your wallet." });
+      await (window as any).ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{ from: profile.wallet_address, to: tokenBObj.address, data: approveData }]
+      });
+
+      // 3. ADD LIQUIDITY (L-Transaction L-Kkbira)
+      toast.info("Adding Liquidity...", { description: "Final confirmation in your wallet." });
 
       const funcSelector = "0xcf6c62ea"; // Add Liquidity Selector
 
