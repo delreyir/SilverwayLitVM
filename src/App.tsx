@@ -141,16 +141,55 @@ export const useTokenBalance = (symbol: string, userAddress?: string | null) => 
 
 export const useMintToken = () => {
   const [minting, setMinting] = useState<string | null>(null);
+  
   const mint = async (symbol: string, tokenAddress: string, decimals: number, userAddress: string) => {
     try {
+      // 1. N-t2kdou mn l-réseau 9bel kolchi!
+      const currentChainId = await (window as any).ethereum.request({ method: "eth_chainId" });
+      
+      if (currentChainId !== LITVM_CHAIN_ID) {
+        toast.info("Switching to LitVM LiteForge...");
+        try {
+          await (window as any).ethereum.request({ 
+            method: "wallet_switchEthereumChain", 
+            params: [{ chainId: LITVM_CHAIN_ID }] 
+          });
+        } catch (switchError: any) {
+          // Ila makanch 3ndo l-réseau ga3, n-ziydouh lih
+          if (switchError.code === 4902) {
+            await (window as any).ethereum.request({ 
+              method: "wallet_addEthereumChain", 
+              params: [LITVM_NETWORK_PARAMS] 
+            });
+          } else {
+            throw new Error("Please switch to LitVM network to mint.");
+          }
+        }
+      }
+
+      // 2. L-Minting process (Ila kan f réseau s7i7)
       setMinting(symbol);
       const amountToMint = symbol === "WBTC" || symbol === "WETH" ? "1" : "1000";
-      toast.info(`Minting ${amountToMint} ${symbol}...`);
+      toast.info(`Minting ${amountToMint} ${symbol}...`, { description: "Confirm in your wallet." });
+      
       const dataPayload = "0x40c10f19" + userAddress.replace("0x", "").padStart(64, "0") + (BigInt(amountToMint) * (BigInt(10) ** BigInt(decimals))).toString(16).padStart(64, "0");
-      await (window as any).ethereum.request({ method: 'eth_sendTransaction', params: [{ from: userAddress, to: tokenAddress, data: dataPayload }] });
-      setTimeout(() => { toast.success(`Minted ${amountToMint} ${symbol}!`); setMinting(null); }, 4000);
-    } catch (err: any) { toast.error(`Failed to mint`); setMinting(null); }
+      
+      await (window as any).ethereum.request({ 
+        method: 'eth_sendTransaction', 
+        params: [{ from: userAddress, to: tokenAddress, data: dataPayload }] 
+      });
+      
+      setTimeout(() => { 
+        toast.success(`Minted ${amountToMint} ${symbol}!`); 
+        setMinting(null); 
+      }, 4000);
+      
+    } catch (err: any) { 
+      toast.error(err.message || `Failed to mint`); 
+      setMinting(null); 
+    }
   };
+  
   return { mint, minting };
 };
 
