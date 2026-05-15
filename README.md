@@ -1,4 +1,3 @@
-cat << 'EOF' > README.md
 # ⛓️ Silverway — Decentralized Exchange on LitVM
 
 **Silverway** is a seamless decentralized exchange (DEX) and automated market maker (AMM) built for trading precision on the **Litecoin Virtual Machine (LitVM)**. It provides a fluid, minimalist interface for users to swap Litecoin-native assets, manage liquidity, and explore the LitVM ecosystem.
