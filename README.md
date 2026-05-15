@@ -1,4 +1,3 @@
-cat << 'EOF' > README.md
 # ⛓️ Silverway — The Native AMM & DEX on LitVM
 
 **Silverway** is a next-generation decentralized exchange (DEX) and automated market maker (AMM) built exclusively for the **Litecoin Virtual Machine (LitVM) LiteForge Testnet**.
